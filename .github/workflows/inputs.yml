@@ -1,0 +1,53 @@
+name: 合併上傳的檔案
+
+on:
+  push:
+    branches: [main]
+    paths: ['inputs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-update
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install numpy openpyxl
+      - name: 合併 inputs 資料夾的檔案
+        id: merge
+        continue-on-error: true
+        run: python scripts/merge_inputs.py
+      - name: 存檔
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A site inputs
+          if git diff --cached --quiet; then echo "沒有變動"; else
+            git commit -m "合併上傳檔案 $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M')"
+            git pull --rebase
+            git push
+          fi
+      - name: 有檔案處理失敗時標示為失敗
+        if: steps.merge.outcome == 'failure'
+        run: |
+          echo "請看 inputs/處理紀錄.txt 或上面的執行紀錄"
+          exit 1
+
+  deploy:
+    needs: merge
+    if: always()
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
