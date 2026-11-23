@@ -1,0 +1,1117 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>股利估價雷達</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* layout concept: header with scope/snapshot + 3 stat tiles, sticky toolbar (search/zone-filter/sort),
+   dense sortable data table (mono numerals, badge for valuation zone), paginated for perf at ~2000 rows */
+:root{
+  --bg:#f3efe6; --surface:#ffffff; --surface-2:#ece6d8; --border:#ddd3bd;
+  --text:#2a2420; --text-muted:#6b6256; --accent:#8a6a2f; --accent-ink:#5c4720;
+  --tw-up:#c2410c; --tw-down:#1a7a4c;
+  --zone-cheap:#0f7a62; --zone-cheap-bg:#d9f0e8;
+  --zone-fair:#9a6a10; --zone-fair-bg:#f3e6c7;
+  --zone-exp:#a63a53; --zone-exp-bg:#f3dbe1;
+  --zone-none-bg:#e7e2d6;
+  --zone-review:#3d5a99; --zone-review-bg:#dde5f6;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1b1812; --surface:#242019; --surface-2:#2c2720; --border:#3c352a;
+    --text:#efe8da; --text-muted:#aa9f8c; --accent:#d2a94f; --accent-ink:#e8c879;
+    --tw-up:#ff8a5c; --tw-down:#4fd396;
+    --zone-cheap:#4fd3ae; --zone-cheap-bg:#163429;
+    --zone-fair:#e3b94f; --zone-fair-bg:#3a2f14;
+    --zone-exp:#f08aa0; --zone-exp-bg:#3a1f26;
+    --zone-none-bg:#332d23;
+    --zone-review:#9db4f0; --zone-review-bg:#1f2a47;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1b1812; --surface:#242019; --surface-2:#2c2720; --border:#3c352a;
+  --text:#efe8da; --text-muted:#aa9f8c; --accent:#d2a94f; --accent-ink:#e8c879;
+  --tw-up:#ff8a5c; --tw-down:#4fd396;
+  --zone-cheap:#4fd3ae; --zone-cheap-bg:#163429;
+  --zone-fair:#e3b94f; --zone-fair-bg:#3a2f14;
+  --zone-exp:#f08aa0; --zone-exp-bg:#3a1f26;
+  --zone-none-bg:#332d23;
+    --zone-review:#9db4f0; --zone-review-bg:#1f2a47;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  padding-left:max(16px, env(safe-area-inset-left,0px));
+  padding-right:max(16px, env(safe-area-inset-right,0px));
+}
+h1,h2,h3{font-family:"Noto Serif TC",serif; text-wrap:balance; margin:0}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums}
+a{color:var(--accent-ink)}
+
+.wrap{max-width:1180px; margin:0 auto; padding-block:28px 60px}
+
+header.page{padding-block:8px 20px; border-bottom:1px solid var(--border); margin-bottom:18px}
+.eyebrow{font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent-ink); font-weight:700; margin-bottom:6px}
+h1{font-size:clamp(24px,4vw,32px); font-weight:700; color:var(--text)}
+.sub{color:var(--text-muted); font-size:14px; margin-top:8px; max-width:62ch; line-height:1.6}
+
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:20px}
+.stat{background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px}
+.stat .n{font-family:"IBM Plex Mono",monospace; font-size:24px; font-weight:600; font-variant-numeric:tabular-nums}
+.stat .l{font-size:12px; color:var(--text-muted); margin-top:4px}
+.stat.cheap .n{color:var(--zone-cheap)}
+.stat.fair .n{color:var(--zone-fair)}
+.stat.exp .n{color:var(--zone-exp)}
+.stat.review .n{color:var(--zone-review)}
+
+.toolbar{
+  position:sticky; top:env(safe-area-inset-top,0px); z-index:5;
+  background:var(--bg); padding-block:12px; margin-bottom:4px;
+  display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+  border-bottom:1px solid var(--border);
+}
+.search{flex:1 1 220px; min-width:0}
+.search input{
+  width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border);
+  background:var(--surface); color:var(--text); font-size:14px;
+}
+.search input:focus{outline:2px solid var(--accent); outline-offset:1px}
+.zonefilter{display:flex; gap:6px; flex-wrap:wrap}
+.zonefilter button{
+  border:1px solid var(--border); background:var(--surface); color:var(--text-muted);
+  padding:7px 12px; border-radius:999px; font-size:13px; cursor:pointer; white-space:nowrap;
+}
+.zonefilter button.active{background:var(--accent); border-color:var(--accent); color:var(--surface); font-weight:600}
+.zonefilter button:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+select{
+  padding:8px 10px; border-radius:8px; border:1px solid var(--border);
+  background:var(--surface); color:var(--text); font-size:13px;
+}
+
+.tablewrap{
+  overflow:auto; max-height:min(640px, 68vh);
+  border:1px solid var(--border); border-radius:10px; background:var(--surface);
+}
+/* overflow-x:auto alone implicitly forces overflow-y:auto too (CSS spec quirk), which made
+   this box its own scroll container without a bounded height -- the sticky header below
+   was then "stuck" only within an ancestor that never actually scrolled internally, so it
+   just scrolled away with the page. Giving the wrapper an explicit max-height + overflow:auto
+   makes it a real independently-scrolling region, so the header row freezes as intended. */
+table{border-collapse:collapse; width:100%; min-width:1130px; font-size:12px}
+thead th{
+  position:sticky; top:0; z-index:1; background:var(--surface-2); color:var(--text-muted);
+  text-align:right; padding:8px 6px; font-weight:600; font-size:10.5px;
+  border-bottom:1px solid var(--border); cursor:pointer; user-select:none; white-space:nowrap;
+}
+thead th:first-child, thead th:nth-child(2){text-align:left}
+thead th .arrow{opacity:.4; margin-left:3px; font-size:10px}
+thead th.sorted .arrow{opacity:1; color:var(--accent-ink)}
+thead th:hover{color:var(--text)}
+tbody td{padding:6px 6px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap}
+tbody td:first-child, tbody td:nth-child(2){text-align:left}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--surface-2)}
+tbody tr{cursor:pointer}
+
+.modal-backdrop{
+  position:fixed; inset:0; background:rgba(20,16,10,.5); z-index:20;
+  display:flex; align-items:flex-end; justify-content:center;
+  padding:0;
+}
+@media (min-width:640px){
+  .modal-backdrop{align-items:center; padding:24px}
+}
+.modal{
+  background:var(--surface); width:100%; max-width:560px; max-height:88vh;
+  border-radius:16px 16px 0 0; overflow-y:auto; border:1px solid var(--border);
+  padding:22px max(20px, env(safe-area-inset-right,0px)) max(22px, env(safe-area-inset-bottom,0px)) max(20px, env(safe-area-inset-left,0px));
+}
+@media (min-width:640px){
+  .modal{border-radius:16px}
+}
+.modal-head{display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:4px}
+.modal-head h2{font-size:21px; font-family:"Noto Serif TC",serif}
+.modal-head .mcode{font-family:"IBM Plex Mono",monospace; color:var(--text-muted); font-size:13px; margin-top:2px}
+.modal-price{font-family:"IBM Plex Mono",monospace; font-size:20px; text-align:right}
+.modal-close{
+  border:none; background:var(--surface-2); color:var(--text); width:32px; height:32px; border-radius:50%;
+  font-size:16px; cursor:pointer; flex:none;
+}
+.modal-close:hover{background:var(--border)}
+.modal-section{margin-top:22px}
+.modal-section h3{font-size:13px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:12px}
+.bars{display:flex; align-items:flex-end; gap:8px; height:92px; padding-bottom:2px; border-bottom:1px solid var(--border)}
+.bar-col{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; min-width:0}
+.bar-val{font-family:"IBM Plex Mono",monospace; font-size:11px; margin-bottom:4px; white-space:nowrap; color:var(--text)}
+.bar-shape{width:100%; max-width:34px; background:var(--accent); border-radius:4px 4px 0 0; min-height:2px}
+.bar-shape.neg{background:var(--zone-exp)}
+.bar-shape.est{background:repeating-linear-gradient(135deg, var(--accent), var(--accent) 4px, var(--surface-2) 4px, var(--surface-2) 8px)}
+.bar-label{font-size:10.5px; color:var(--text-muted); margin-top:6px; white-space:nowrap}
+.rev-bars .bar-shape{background:var(--zone-cheap)}
+.modal-note{font-size:11px; color:var(--text-muted); margin-top:8px}
+.payout-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
+.payout-cell{background:var(--surface-2); border-radius:10px; padding:10px 12px; text-align:center}
+.payout-cell .py{font-size:11px; color:var(--text-muted)}
+.payout-cell .pv{font-family:"IBM Plex Mono",monospace; font-size:17px; margin-top:3px; font-weight:600}
+.payout-avg{margin-top:10px; font-size:13px; color:var(--text-muted); text-align:center}
+.payout-avg b{color:var(--text); font-family:"IBM Plex Mono",monospace}
+tbody td.ind{text-align:left; color:var(--text-muted)}
+.code{color:var(--text-muted); font-size:12px}
+.name{font-weight:600}
+.chg-up{color:var(--tw-up)}
+.chg-down{color:var(--tw-down)}
+.src-est{color:var(--text-muted); font-size:10px; vertical-align:super}
+.na{color:var(--text-muted)}
+.warn-flag{color:var(--zone-exp); font-size:11px; margin-left:3px; cursor:help}
+
+.badge{
+  display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600;
+}
+.badge.cheap{background:var(--zone-cheap-bg); color:var(--zone-cheap)}
+.badge.fair{background:var(--zone-fair-bg); color:var(--zone-fair)}
+.badge.exp{background:var(--zone-exp-bg); color:var(--zone-exp)}
+.badge.none{background:var(--zone-none-bg); color:var(--text-muted)}
+.badge.review{background:var(--zone-review-bg); color:var(--zone-review)}
+/* 品質分數:通過項數/可評估項數;品質檢視的儲存格以底色表示達標(青)或未達標(玫瑰) */
+.qs{display:inline-block; min-width:34px; padding:2px 6px; border-radius:6px; font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600; text-align:center}
+.qs.hi{background:var(--zone-cheap-bg); color:var(--zone-cheap)}
+.qs.mid{background:var(--zone-fair-bg); color:var(--zone-fair)}
+.qs.lo{background:var(--zone-exp-bg); color:var(--zone-exp)}
+tbody td.q-pass{background:var(--zone-cheap-bg)}
+tbody td.q-fail{background:var(--zone-exp-bg)}
+tbody td.q-txt{font-family:inherit}
+.viewtoggle{display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden}
+.viewtoggle button{border:none; background:var(--surface); color:var(--text-muted); padding:8px 12px; font-size:13px; cursor:pointer; white-space:nowrap}
+.viewtoggle button + button{border-left:1px solid var(--border)}
+.viewtoggle button.active{background:var(--accent); color:var(--surface); font-weight:600}
+.viewtoggle button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+.qc-head{display:flex; align-items:baseline; gap:10px; margin-bottom:10px; font-size:13px; color:var(--text-muted)}
+.qc-head .qs{font-size:14px; padding:3px 9px}
+.qc-list{display:grid; grid-template-columns:26px minmax(0,1fr) auto; gap:0; font-size:13px}
+.qc-list > div{padding:7px 8px 7px 0; border-bottom:1px solid var(--border)}
+.qc-list > div.qc-val{padding-right:0; padding-left:8px}
+.qc-list > div:nth-last-child(-n+3){border-bottom:none}
+.qc-mark{font-weight:700; text-align:center}
+.qc-mark.ok{color:var(--zone-cheap)}
+.qc-mark.no{color:var(--zone-exp)}
+.qc-mark.na{color:var(--text-muted)}
+.qc-std{display:block; font-size:11px; color:var(--text-muted); margin-top:1px}
+.qc-val{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap}
+.oneoff-flag{display:inline-block; margin-left:4px; width:14px; height:14px; line-height:14px; border-radius:50%;
+  background:var(--zone-fair-bg); color:var(--zone-fair); font-size:10px; font-weight:700; text-align:center; cursor:help}
+.note-list{margin:0; padding-left:18px; font-size:13px; line-height:1.7; color:var(--text)}
+.note-list li{margin-bottom:6px}
+.note-list li:last-child{margin-bottom:0}
+.chip-tiles{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:12px}
+.chip-tile{background:var(--surface-2); border-radius:10px; padding:10px 8px; text-align:center}
+.chip-tile .ck{font-size:11px; color:var(--text-muted)}
+.chip-tile .cv{font-family:"IBM Plex Mono",monospace; font-size:16px; font-weight:600; margin-top:3px; font-variant-numeric:tabular-nums}
+.chip-table{min-width:0; width:100%; font-size:12px}
+.chip-table thead th{position:static; background:transparent; cursor:default; padding:6px 6px; font-size:11px}
+.chip-table thead th:hover{color:var(--text-muted)}
+.chip-table th:nth-child(2), .chip-table td:nth-child(2){text-align:right}
+.chip-table tbody tr{cursor:default}
+.chip-table tbody tr:hover{background:transparent}
+.chip-table td{padding:5px 6px}
+.chip-table td.vol{background-repeat:no-repeat; background-position:right center}
+
+.pager{display:flex; align-items:center; justify-content:center; gap:14px; margin-top:16px; font-size:13px; color:var(--text-muted)}
+.pager button{
+  border:1px solid var(--border); background:var(--surface); color:var(--text);
+  padding:7px 14px; border-radius:8px; cursor:pointer; font-size:13px;
+}
+.pager button:disabled{opacity:.4; cursor:not-allowed}
+.pager button:not(:disabled):hover{border-color:var(--accent)}
+
+.legend{
+  margin-top:28px; padding:18px 20px; background:var(--surface); border:1px solid var(--border);
+  border-radius:10px; font-size:13px; color:var(--text-muted); line-height:1.8;
+}
+.legend h3{font-size:14px; color:var(--text); margin-bottom:10px}
+.legend dl{display:grid; grid-template-columns:auto 1fr; gap:4px 14px; margin:0}
+.legend dt{font-weight:600; color:var(--text); white-space:nowrap}
+.legend .foot{margin-top:14px; padding-top:14px; border-top:1px solid var(--border); font-size:12px}
+
+.empty{padding:40px; text-align:center; color:var(--text-muted)}
+
+@media (max-width:640px){
+  .toolbar{position:static}
+  thead th{font-size:10px; padding:7px 5px}
+  tbody td{padding:6px 5px; font-size:11.5px}
+}
+</style>
+
+<div class="wrap">
+  <header class="page">
+    <div class="eyebrow">台股 · 股利估價篩選</div>
+    <h1>股利估價雷達</h1>
+    <p class="sub" id="subtitle">載入中…</p>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <div class="toolbar">
+    <div class="search">
+      <input type="text" id="searchInput" placeholder="搜尋代號或名稱,例如 2330 或 台積電" autocomplete="off">
+    </div>
+    <div class="zonefilter" id="zoneFilter">
+      <button data-zone="all" class="active">全部</button>
+      <button data-zone="cheap">便宜</button>
+      <button data-zone="fair">合理</button>
+      <button data-zone="expensive">昂貴</button>
+      <button data-zone="review">待覆核</button>
+      <button data-zone="none">無股利資料</button>
+    </div>
+    <select id="industrySelect" aria-label="產業篩選">
+      <option value="all">全部產業</option>
+    </select>
+    <select id="qualitySelect" aria-label="品質分數篩選">
+      <option value="0">品質不限</option>
+      <option value="5">品質達 5 項以上</option>
+      <option value="6">品質達 6 項以上</option>
+      <option value="7">品質達 7 項以上</option>
+      <option value="8">品質達 8 項以上</option>
+    </select>
+    <select id="peSelect" aria-label="本益比篩選">
+      <option value="0">本益比不限</option>
+      <option value="10">本益比 10 倍以下</option>
+      <option value="12">本益比 12 倍以下</option>
+      <option value="15">本益比 15 倍以下</option>
+      <option value="20">本益比 20 倍以下</option>
+    </select>
+    <div class="viewtoggle" id="viewToggle" role="group" aria-label="表格欄位">
+      <button data-view="val" class="active">估價欄位</button>
+      <button data-view="qual">品質欄位</button>
+    </div>
+    <select id="pageSizeSelect">
+      <option value="50">每頁 50 筆</option>
+      <option value="100">每頁 100 筆</option>
+      <option value="200">每頁 200 筆</option>
+    </select>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr id="headerRow"></tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <div id="emptyState" class="empty" hidden>沒有符合條件的股票</div>
+
+  <div class="pager">
+    <button id="prevBtn">← 上一頁</button>
+    <span id="pageInfo"></span>
+    <button id="nextBtn">下一頁 →</button>
+  </div>
+
+  <div class="legend">
+    <h3>計算方式</h3>
+    <dl>
+      <dt>今年預估EPS</dt><dd>Q1+Q2+Q3+Q4,已公告的季度用實際數字。Q3若未公告,取三個候選值的<b>中位數</b>:①Q2EPS ×(7~9月營收 ÷ 4~6月營收)、②上半年EPS ×(7~9月營收 ÷ 1~6月營收)、③去年同季EPS,避免單一季的匯損或一次性項目把推估帶偏。Q4一律是推估,同樣取三個候選值的中位數:①Q3EPS ×(10月起已公告月營收的月均 ÷ 7~9月月均)、②前三季平均EPS ×(10月起月均 ÷ 1~9月月均)、③去年Q4EPS,兩個營收比例都限制在 0.7~1.3 倍,避免Q3單季的一次性損益被直接複製到Q4。表格中帶上標「估」的數字代表是推估值,不是公司公告的實際數字。公司今年若有股票分割、配發股票股利或減資,公告的 Q1、Q2 EPS 是舊股本、Q3 之後與股價是新股本,直接相加會失真;這類個股的 Q1、Q2 與去年EPS會依官方前三季累計EPS換算成目前股本,數字旁標「換」,點開個股可看原始公告數字與換算係數。</dd>
+      <dt>EPS年增%</dt><dd>今年預估EPS 相對去年同期(25Q1~25Q4,皆為已公告實際數字)的年增率,用來判斷是成長股還是衰退股。去年EPS優先採用估價表裡的官方年度EPS,沒有時才用去年四季相加。年增率旁若出現「!」,代表今年獲利可能含一次性因素(去年虧損今年轉盈、去年EPS基期過低,或EPS年增遠高於1~9月營收年增),點開個股可看原因;這類個股套用歷史配息率容易高估股利。</dd>
+      <dt>配息率</dt><dd>採 2024~2026 近三年「股利分配率」<b>中位數</b>(單一年度的特別股利會把平均值拉偏,中位數較不受極端值影響;某年度缺資料則用其餘可取得的年度計算)。滑鼠移到數字上可看近3年平均值供對照。中位數超過100%時,估算股利一律以 <b>100% 為上限</b>(公司不可能長期配出超過獲利的股利)。若近3年平均配息率超過100%,會標示⚠,需留意可持續性。</dd>
+      <dt>預估股利</dt><dd>今年預估EPS × 配息率中位數(上限100%)。若今年EPS為負,或算出的股利為負/零,評價欄會直接標示「今年虧損」或「配息率異常」,不會給出數字。</dd>
+      <dt>便宜價 / 合理價</dt><dd>預估股利 × 16.5 倍 / × 20 倍</dd>
+      <dt>本益比</dt><dd>現價 ÷ 今年預估EPS(與便宜價、合理價用同一個EPS:已公告的季度用實際數字,Q4 為推估)。比較像「今年本益比」,不是用法人預估的前瞻本益比;Q4 推估有誤差,單季一次性損益也會影響。今年預估虧損的個股不計算,顯示「—」,排序時排在最後。上方選單可只看 10、12、15、20 倍以下的個股,可與評價分區、品質分數一起篩選。</dd>
+      <dt>產業</dt><dd>證交所/櫃買中心公司基本資料的官方產業別。可用上方「全部產業」選單只看單一產業,也可以點「產業」欄位排序讓同產業排在一起;同產業的配息習慣相近,殖利率與便宜價在同產業內比較才有參考性。</dd>
+      <dt>近十日籌碼</dt><dd>點開個股可看最近十個交易日的外資、投信、自營商買賣超與成交量(單位:張,紅色買超、綠色賣超),資料取自「台股趨勢雷達」每日抓取的證交所/櫃買中心三大法人買賣超日報;成交量欄的底色長度代表該日量相對十日內最大量的比例。「—」代表當日沒有該股的法人資料。</dd>
+      <dt>品質分數</dt><dd>用來在便宜區裡分辨「便宜且體質好」與「便宜是因為變差」。共 9 項檢核,顯示為「達標項數/可評估項數」(例如 7/9),缺資料的項目不列入分母;門檻是本工具自訂的篩選條件,不是通用標準。按上方「品質欄位」可切換成逐項檢視,青色底為達標、玫瑰色底為未達標;點開個股可看每一項的數值與標準。①<b>連續配息</b>:截至最近一年連續配息 5 年以上(資料涵蓋 2017~2026)。②<b>獲利穩定</b>:近 12 季已公告的單季EPS中,虧損不超過 1 季(推估的季度不計)。③<b>營收動能</b>:最近 3 個月營收合計高於去年同期。④<b>法人動向</b>:近十個交易日外資與投信合計買超。⑤<b>趨勢</b>:台股趨勢雷達的分類不是「下降趨勢」或「跌破關注」。⑥<b>ROE</b>:年化 ROE 達 10% 以上(年初至最新一季累計的歸屬母公司淨利 ÷ 期末歸屬母公司權益,再換算成全年;不是近四季合計,淡旺季明顯的公司會有偏差)。⑦<b>毛利率</b>:不低於同產業中位數。⑧<b>營業利益率</b>:為正,且不低於同產業中位數。⑨<b>負債比</b>:低於 60%。⑥~⑨取自證交所/櫃買中心開放資料的最新一期財報(只有最新一期,看不出多年趨勢);官方開放資料沒有的個股(金融業與尚未收錄者)改用您上傳的估價表補值:ROE 為近四季合計、毛利率與營業利益率為單季,點開個股會註明;金融業只補 ROE,毛利率、營業利益率、負債比顯示「—」。品質分數只能排除明顯有疑慮的公司,不代表高分就值得買進。</dd>
+      <dt>殖利率 / 待覆核</dt><dd>殖利率 = 預估股利 ÷ 現價。推估殖利率超過 12% 時不列入「便宜」,改標「<b>待覆核</b>」:這麼高的數字多半來自獲利或配息率推估失真,而不是真的便宜,需先查核財報。評價徽章右上角若有小字「估」,代表今年EPS仍含第三季推估值(尚非正式財報),信心度較低,待財報公告後數字會更新。</dd>
+    </dl>
+    <div class="foot" id="footNote"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop" hidden>
+  <div class="modal" id="modalBody" role="dialog" aria-modal="true"></div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var COLUMNS = [
+    {key:'code', label:'代號', sortable:true, align:'left'},
+    {key:'name', label:'名稱', sortable:true, align:'left'},
+    {key:'industry', label:'產業', sortable:true, align:'left'},
+    {key:'price', label:'現價', sortable:true},
+    {key:'chg_pct', label:'漲跌%', sortable:true},
+    {key:'q1', label:'Q1', sortable:true},
+    {key:'q2', label:'Q2', sortable:true},
+    {key:'q3', label:'Q3', sortable:true},
+    {key:'q4', label:'Q4(估)', sortable:true},
+    {key:'est_dividend', label:'預估股利', sortable:true},
+    {key:'yield_pct', label:'殖利率%', sortable:true},
+    {key:'pe_fwd', label:'本益比', sortable:true, title:'現價 ÷ 今年預估EPS(前三季實際+Q4推估);今年虧損或EPS為零時不計算'},
+    {key:'valuation_zone', label:'評價', sortable:true},
+    {key:'q_pass', label:'品質', sortable:true, title:'品質分數:9 項檢核中達標的項數/可評估的項數;按上方「品質欄位」看逐項結果'},
+    {key:'eps_this_year', label:'今年EPS', sortable:true, title:'今年預估EPS(Q1+Q2+Q3+Q4)'},
+    {key:'eps_yoy_pct', label:'年增%', sortable:true, title:'今年預估EPS 相對去年同期(25Q1~25Q4實際數字)的年增率'},
+    {key:'payout_median3', label:'配息率%', sortable:true, title:'近3年(2024~2026)股利分配率中位數,用於估算股利;滑鼠移到數值上可看平均值對照;超過100%時以100%估算'},
+    {key:'cheap_price', label:'便宜價', sortable:true},
+    {key:'fair_price', label:'合理價', sortable:true}
+  ];
+
+  // 「品質欄位」檢視:同一批股票,改看 9 項品質檢核的逐項數值(底色:青=達標、玫瑰=未達標)
+  var QUAL_COLUMNS = [
+    {key:'code', label:'代號', sortable:true, align:'left'},
+    {key:'name', label:'名稱', sortable:true, align:'left'},
+    {key:'industry', label:'產業', sortable:true, align:'left'},
+    {key:'price', label:'現價', sortable:true},
+    {key:'valuation_zone', label:'評價', sortable:true},
+    {key:'yield_pct', label:'殖利率%', sortable:true},
+    {key:'pe_fwd', label:'本益比', sortable:true, title:'現價 ÷ 今年預估EPS(前三季實際+Q4推估);今年虧損或EPS為零時不計算'},
+    {key:'q_pass', label:'品質', sortable:true, title:'達標項數/可評估項數'},
+    {key:'div_streak', label:'連續配息', sortable:true, title:'截至最近一年連續配息的年數(資料涵蓋 2017~2026);達標:5 年以上'},
+    {key:'profit_pos', label:'獲利季數', sortable:true, title:'近 12 季已公告的單季EPS中為正的季數;達標:虧損不超過 1 季'},
+    {key:'rev3_yoy', label:'近3月營收年增', sortable:true, title:'最近 3 個月營收合計相對去年同期的年增率;達標:大於 0'},
+    {key:'inst10', label:'法人10日(張)', sortable:true, title:'近十個交易日外資+投信合計買賣超(張);達標:買超'},
+    {key:'trend_rank', label:'趨勢', sortable:true, title:'台股趨勢雷達的分類;達標:不是下降趨勢或跌破關注'},
+    {key:'roe', label:'ROE%', sortable:true, title:'年化 ROE(最新一期累計淨利 ÷ 期末權益,換算全年);達標:10% 以上'},
+    {key:'gm', label:'毛利率%', sortable:true, title:'最新一期累計毛利率;達標:不低於同產業中位數'},
+    {key:'opm', label:'營益率%', sortable:true, title:'最新一期累計營業利益率;達標:為正且不低於同產業中位數'},
+    {key:'debt', label:'負債比%', sortable:true, title:'負債總計 ÷ 資產總計;達標:低於 60%'}
+  ];
+  function activeColumns(){ return state.view === 'qual' ? QUAL_COLUMNS : COLUMNS; }
+
+  var state = {
+    all: [],
+    filtered: [],
+    search: '',
+    zone: 'all',
+    industry: 'all',
+    minQuality: 0,
+    maxPe: 0,
+    view: 'val',
+    sortKey: 'code',
+    sortDir: 1,
+    page: 1,
+    pageSize: 50
+  };
+
+  function fmt(v, d){
+    if (v === null || v === undefined) return '<span class="na">—</span>';
+    return v.toLocaleString('zh-TW', {minimumFractionDigits: d===undefined?2:d, maximumFractionDigits: d===undefined?2:d});
+  }
+  function fmtInt(v){
+    if (v === null || v === undefined) return '<span class="na">—</span>';
+    return v.toLocaleString('zh-TW');
+  }
+
+  function zoneBadge(z, yieldPct, noEstReason, dataConfidence){
+    // yield% isn't repeated here any more -- it already has its own column right next to
+    // this one, so showing it twice just wasted horizontal space in a 16-column table
+    var confMark = (dataConfidence === 'medium')
+      ? '<span class="src-est" title="今年EPS含第三季營收推估值(非正式財報),數字信心度較低">估</span>' : '';
+    if (z === 'review') return '<span class="badge review" title="推估殖利率超過12%,多半是獲利或配息率推估失真,請先查核財報再判斷">待覆核' + confMark + '</span>';
+    if (z === 'cheap') return '<span class="badge cheap">便宜' + confMark + '</span>';
+    if (z === 'fair') return '<span class="badge fair">合理' + confMark + '</span>';
+    if (z === 'expensive') return '<span class="badge exp">昂貴' + confMark + '</span>';
+    if (noEstReason === 'loss_this_year') return '<span class="badge none" title="今年累計EPS為負,無法用盈餘推估股利">今年虧損</span>';
+    if (noEstReason === 'non_positive_estimate') return '<span class="badge none" title="近三年配息率中位數為負或零,無法用於推估">配息率異常</span>';
+    return '<span class="badge none">無資料</span>';
+  }
+
+  // 股本變動(分割/配股/減資)時,Q1、Q2 已依官方前三季累計EPS換算成目前股本
+  function adjMark(r){
+    return r.share_adj ? '<span class="src-est" title="今年股本有變動,這個數字已依官方前三季累計EPS換算成目前股本,不是公司當時公告的數字;點開個股看說明">換</span>' : '';
+  }
+
+  function qCell(val, source){
+    if (val === null || val === undefined) return '<span class="na">—</span>';
+    var sup = '';
+    if (source && source.indexOf('estimated') === 0) sup = '<span class="src-est">估</span>';
+    return fmt(val) + sup;
+  }
+
+  // ---- 品質分數:9 項檢核(門檻為本工具自訂的篩選條件) ----
+  var TREND = {uptrend:['上升',5], breakout_watch:['突破關注',4], consolidation:['盤整',3], breakdown_watch:['跌破關注',2], downtrend:['下降',1]};
+  var Q_MIN_CHECKS = 3;     // 可評估項目少於這個數就不給分數
+
+  function median(arr){
+    if (!arr.length) return null;
+    var a = arr.slice().sort(function(x, y){ return x - y; }), m = a.length >> 1;
+    return a.length % 2 ? a[m] : (a[m-1] + a[m]) / 2;
+  }
+  function pctTxt(v, signed){
+    if (v === null || v === undefined) return null;
+    if (v > 999) return '>999%';
+    if (v < -999) return '<-999%';
+    return (signed && v > 0 ? '+' : '') + v.toFixed(1) + '%';
+  }
+  function isNum(v){ return typeof v === 'number' && isFinite(v); }
+
+  function prepQuality(data){
+    var fund = (state.fund && state.fund.stocks) || {};
+    var chips = (state.chips && state.chips.stocks) || {};
+    // 同產業中位數(該產業有數字的不到 5 檔時,改用全市場中位數)
+    var pool = {gm:{}, opm:{}}, all = {gm:[], opm:[]};
+    data.forEach(function(r){
+      var f = fund[r.code];
+      if (!f) return;
+      ['gm','opm'].forEach(function(k){
+        if (!isNum(f[k])) return;
+        all[k].push(f[k]);
+        var ind = r.industry || '未分類';
+        (pool[k][ind] = pool[k][ind] || []).push(f[k]);
+      });
+    });
+    var allMed = {gm: median(all.gm), opm: median(all.opm)};
+    function indMed(k, ind){
+      var a = pool[k][ind || '未分類'];
+      return (a && a.length >= 5) ? {v: median(a), scope: '同產業'} : {v: allMed[k], scope: '全市場'};
+    }
+
+    data.forEach(function(r){
+      var f = fund[r.code] || null, c = chips[r.code] || null, checks = [];
+      function add(k, label, std, text, pass){ checks.push({k:k, label:label, std:std, text:text, pass:pass}); }
+
+      // ① 連續配息:從最近一個有資料的年度往回數,遇到沒配息(0)或沒資料就停
+      var pby = r.payout_by_year || {}, streak = null;
+      var years = Object.keys(pby).filter(function(y){ return isNum(pby[y]); }).sort();
+      if (years.length){
+        streak = 0;
+        for (var y = +years[years.length-1]; y >= 2000; y--){
+          var pv = pby[String(y)];
+          if (!isNum(pv) || pv === 0) break;
+          streak++;
+        }
+      }
+      r.div_streak = streak;
+      add('div', '連續配息', '5 年以上(資料涵蓋 2017~2026)', streak === null ? null : streak + ' 年', streak === null ? null : streak >= 5);
+
+      // ② 獲利穩定:較早 8 季(eps_hist)+近四季中已公告的季度;推估值不計
+      var qs = (r.eps_hist || []).map(function(x){ return x[1]; });
+      (r.last4_eps || []).forEach(function(x){ if (!x.estimated) qs.push(x.eps); });
+      qs = qs.filter(isNum);
+      var pos = qs.filter(function(v){ return v > 0; }).length, nq = qs.length;
+      r.profit_pos = nq ? pos : null;
+      add('profit', '獲利穩定', '近 12 季已公告的單季EPS,虧損不超過 1 季', nq ? pos + '/' + nq + ' 季' : null, nq >= 8 ? (nq - pos) <= 1 : null);
+
+      // ③ 營收動能
+      var ry = (c && isNum(c.ry)) ? c.ry : null;
+      r.rev3_yoy = ry;
+      var rm = (c && c.rm) ? '(至 ' + c.rm.slice(0,4) + '/' + c.rm.slice(4) + ')' : '';
+      add('rev', '營收動能', '近 3 個月營收合計高於去年同期' + rm, pctTxt(ry, true), ry === null ? null : ry > 0);
+
+      // ④ 法人動向:近十日外資+投信合計(張)
+      var inst = null;
+      if (c && c.f && c.t){
+        var tot = 0, any = false;
+        c.f.concat(c.t).forEach(function(x){ if (isNum(x)){ tot += x; any = true; } });
+        if (any) inst = Math.round(tot / 1000);
+      }
+      r.inst10 = inst;
+      add('inst', '法人動向', '近十個交易日外資+投信合計買超', inst === null ? null : (inst > 0 ? '+' : '') + inst.toLocaleString('zh-TW') + ' 張', inst === null ? null : inst > 0);
+
+      // ⑤ 趨勢
+      var tr = (c && TREND[c.tr]) ? TREND[c.tr] : null;
+      r.trend_rank = tr ? tr[1] : null;
+      add('trend', '趨勢', '不是「下降」或「跌破關注」', tr ? tr[0] : null, tr ? tr[1] >= 3 : null);
+
+      // ⑥~⑨ 最新一期財報
+      r.roe = (f && isNum(f.roe)) ? f.roe : null;
+      r.gm = (f && isNum(f.gm)) ? f.gm : null;
+      r.opm = (f && isNum(f.opm)) ? f.opm : null;
+      r.debt = (f && isNum(f.debt)) ? f.debt : null;
+      r.fin_period = f ? f.p : null;
+      r.fin_src = f ? (f.src || null) : null;     // 'x' = 官方開放資料沒有,改用使用者估價表補的數字
+      var fx = r.fin_src === 'x';
+      add('roe', fx ? 'ROE(近四季)' : 'ROE(年化)', '10% 以上', pctTxt(r.roe), r.roe === null ? null : r.roe >= 10);
+      var mg = indMed('gm', r.industry), mo = indMed('opm', r.industry);
+      add('gm', fx ? '毛利率(單季)' : '毛利率', '不低於' + mg.scope + '中位數' + (isNum(mg.v) ? ' ' + mg.v.toFixed(1) + '%' : ''),
+          pctTxt(r.gm), (r.gm === null || !isNum(mg.v)) ? null : r.gm >= mg.v);
+      add('opm', fx ? '營業利益率(單季)' : '營業利益率', '為正,且不低於' + mo.scope + '中位數' + (isNum(mo.v) ? ' ' + mo.v.toFixed(1) + '%' : ''),
+          pctTxt(r.opm), (r.opm === null || !isNum(mo.v)) ? null : (r.opm > 0 && r.opm >= mo.v));
+      add('debt', '負債比', '低於 60%', pctTxt(r.debt), r.debt === null ? null : r.debt < 60);
+
+      var by = {}, pass = 0, n = 0;
+      checks.forEach(function(x){ by[x.k] = x; if (x.pass !== null){ n++; if (x.pass) pass++; } });
+      r.q = {checks: checks, by: by};
+      r.q_n = n;
+      r.q_pass = n >= Q_MIN_CHECKS ? pass : null;
+    });
+  }
+
+  // 本益比 = 現價 ÷ 今年預估EPS;頁面載入時計算,所以每日股價更新後自動跟著變
+  function prepPe(data){
+    data.forEach(function(r){
+      var e = r.eps_this_year, p = r.price;
+      r.pe_fwd = (isNum(e) && e > 0 && isNum(p) && p > 0) ? Math.round(p / e * 10) / 10 : null;
+    });
+  }
+  function peTxt(r){
+    if (r.pe_fwd === null || r.pe_fwd === undefined){
+      var why = (isNum(r.eps_this_year) && r.eps_this_year <= 0) ? '今年預估虧損,不計算本益比' : '今年EPS無法推估';
+      return '<span class="na" title="' + why + '">—</span>';
+    }
+    return r.pe_fwd > 999 ? '>999' : r.pe_fwd.toFixed(1);
+  }
+
+  function qualityBadge(r){
+    if (r.q_pass === null || r.q_pass === undefined) return '<span class="na">—</span>';
+    var ratio = r.q_pass / r.q_n;
+    var cls = ratio >= 0.75 ? 'hi' : (ratio >= 0.5 ? 'mid' : 'lo');
+    var fails = r.q.checks.filter(function(x){ return x.pass === false; }).map(function(x){ return x.label; });
+    var tip = fails.length ? '未達標:' + fails.join('、') : '可評估的項目全部達標';
+    return '<span class="qs ' + cls + '" title="' + tip + '">' + r.q_pass + '/' + r.q_n + '</span>';
+  }
+
+  // 品質檢視的儲存格:文字取自檢核結果,底色表示達標與否
+  function qTd(r, k, extraCls){
+    var x = r.q && r.q.by[k];
+    var cls = 'mono' + (extraCls ? ' ' + extraCls : '') + (x && x.pass === true ? ' q-pass' : (x && x.pass === false ? ' q-fail' : ''));
+    return '<td class="' + cls + '">' + ((x && x.text !== null) ? x.text.replace(' 張', '').replace(' 季', '') : '<span class="na">—</span>') + '</td>';
+  }
+
+  function buildQuality(r){
+    if (!r.q) return '';
+    var rows = r.q.checks.map(function(x){
+      var mark = x.pass === true ? '<div class="qc-mark ok" aria-label="達標">✓</div>'
+        : (x.pass === false ? '<div class="qc-mark no" aria-label="未達標">✗</div>' : '<div class="qc-mark na" aria-label="無資料">–</div>');
+      return mark + '<div>' + x.label + '<span class="qc-std">達標:' + x.std + '</span></div>' +
+        '<div class="qc-val">' + (x.text === null ? '—' : x.text) + '</div>';
+    }).join('');
+    var head = (r.q_pass === null || r.q_pass === undefined)
+      ? '<div class="qc-head"><span>可評估的項目不足 ' + Q_MIN_CHECKS + ' 項,不計分。</span></div>'
+      : '<div class="qc-head">' + qualityBadge(r) + '<span>達標 ' + r.q_pass + ' 項,可評估 ' + r.q_n + ' 項' +
+        (r.q_n < r.q.checks.length ? '(缺資料的 ' + (r.q.checks.length - r.q_n) + ' 項不列入)' : '') + '</span></div>';
+    var per = r.fin_period ? (function(p){ var m = /^(\d+)Q(\d)$/.exec(p); return m ? (+m[1] + 1911) + ' 年第 ' + m[2] + ' 季累計' : p; })(r.fin_period) : null;
+    var perX = r.fin_period ? finPeriodText(r.fin_period) : '';
+    var note = (r.fin_src === 'x'
+        ? '官方開放資料沒有這檔的財報數字,ROE、毛利率、營業利益率、負債比改用您上傳的估價表(截至 ' + perX + '):ROE 為近四季合計,毛利率與營業利益率為單季,算法與其他個股(累計、年化)略有不同;金融業只列 ROE。'
+        : (per ? 'ROE、毛利率、營業利益率、負債比為 ' + per + '財報數字;ROE 為年化值。' : 'ROE、毛利率、營業利益率、負債比沒有資料(金融業報表格式不同,或尚未申報)。')) +
+      '門檻是本工具自訂的篩選條件,只能排除明顯有疑慮的公司,不代表達標就值得買進。';
+    return '<div class="modal-section"><h3>品質檢核</h3>' + head + '<div class="qc-list">' + rows + '</div>' +
+      '<div class="modal-note">' + note + '</div></div>';
+  }
+
+  // single source of truth for a row's cell content, keyed the same way as COLUMNS,
+  // so the header (built from COLUMNS) and the body (built from this) can never drift apart.
+  function renderCell(key, r){
+    switch(key){
+      case 'code': return '<td class="code mono">' + r.code + '</td>';
+      case 'name': return '<td class="name">' + r.name + '</td>';
+      case 'industry': return '<td class="ind">' + (r.industry || '<span class="na">—</span>') + '</td>';
+      case 'price': return '<td class="mono">' + fmt(r.price, 1) + '</td>';
+      case 'chg_pct': {
+        var chgClass = (r.chg_pct === null) ? '' : (r.chg_pct > 0 ? 'chg-up' : (r.chg_pct < 0 ? 'chg-down' : ''));
+        var chgSign = (r.chg_pct !== null && r.chg_pct > 0) ? '+' : '';
+        return '<td class="mono ' + chgClass + '">' + (r.chg_pct===null?'<span class="na">—</span>':chgSign + fmt(r.chg_pct,2)+'%') + '</td>';
+      }
+      case 'q1': return '<td class="mono">' + qCell(r.q1,'actual') + adjMark(r) + '</td>';
+      case 'q2': return '<td class="mono">' + qCell(r.q2,'actual') + adjMark(r) + '</td>';
+      case 'q3': return '<td class="mono">' + qCell(r.q3, r.q3_source) + '</td>';
+      case 'q4': return '<td class="mono">' + qCell(r.q4, r.q4_source) + '</td>';
+      case 'est_dividend': return '<td class="mono">' + fmt(r.est_dividend) + '</td>';
+      case 'yield_pct': return '<td class="mono">' + (r.yield_pct===null?'<span class="na">—</span>':fmt(r.yield_pct,2)+'%') + '</td>';
+      case 'valuation_zone': return '<td>' + zoneBadge(r.valuation_zone, r.yield_pct, r.no_est_reason, r.data_confidence) + '</td>';
+      case 'eps_this_year': return '<td class="mono">' + fmt(r.eps_this_year) + '</td>';
+      case 'eps_yoy_pct': {
+        if (r.eps_yoy_pct === null || r.eps_yoy_pct === undefined) return '<td class="mono"><span class="na">—</span></td>';
+        var yoyClass = r.eps_yoy_pct > 0 ? 'chg-up' : (r.eps_yoy_pct < 0 ? 'chg-down' : '');
+        var yoySign = r.eps_yoy_pct > 0 ? '+' : '';
+        var oneoff = r.oneoff_warning ? '<span class="oneoff-flag" title="今年獲利可能含一次性因素,點開看原因">!</span>' : '';
+        return '<td class="mono ' + yoyClass + '">' + yoySign + fmt(r.eps_yoy_pct,1) + '%' + oneoff + '</td>';
+      }
+      case 'payout_median3': {
+        if (r.payout_median3 === null) return '<td class="mono"><span class="na">—</span></td>';
+        var capNote = r.payout_capped ? ';估算股利時以100%為上限' : '';
+        var avgNote = (r.payout_avg3 === null) ? '' : ' title="近3年平均 ' + r.payout_avg3.toFixed(1) + '%' + capNote + '"';
+        return '<td class="mono"' + avgNote + '>' + fmt(r.payout_median3,1) + '%' +
+          (r.high_payout_warning ? '<span class="warn-flag" title="近3年平均配息率超過100%,配息來源可能包含保留盈餘或非當期獲利,須留意可持續性">⚠</span>' : '') +
+          '</td>';
+      }
+      case 'pe_fwd': return '<td class="mono">' + peTxt(r) + '</td>';
+      case 'q_pass': return '<td>' + qualityBadge(r) + '</td>';
+      case 'div_streak': return qTd(r, 'div');
+      case 'profit_pos': return qTd(r, 'profit');
+      case 'rev3_yoy': return qTd(r, 'rev');
+      case 'inst10': return qTd(r, 'inst');
+      case 'trend_rank': return qTd(r, 'trend', 'q-txt');
+      case 'roe': return qTd(r, 'roe');
+      case 'gm': return qTd(r, 'gm');
+      case 'opm': return qTd(r, 'opm');
+      case 'debt': return qTd(r, 'debt');
+      case 'cheap_price': return '<td class="mono">' + fmt(r.cheap_price,1) + '</td>';
+      case 'fair_price': return '<td class="mono">' + fmt(r.fair_price,1) + '</td>';
+      default: return '<td class="mono"><span class="na">—</span></td>';
+    }
+  }
+
+  function buildHeader(){
+    var row = document.getElementById('headerRow');
+    row.innerHTML = '';
+    activeColumns().forEach(function(col){
+      var th = document.createElement('th');
+      th.textContent = col.label;
+      if (col.title) th.title = col.title;
+      if (col.align === 'left') th.style.textAlign = 'left';
+      var arrow = document.createElement('span');
+      arrow.className = 'arrow';
+      arrow.textContent = '↕';
+      th.appendChild(arrow);
+      if (col.sortable){
+        th.addEventListener('click', function(){ setSort(col.key); });
+      }
+      th.dataset.key = col.key;
+      row.appendChild(th);
+    });
+    updateHeaderSortIndicator();
+  }
+
+  function updateHeaderSortIndicator(){
+    var ths = document.querySelectorAll('#headerRow th');
+    ths.forEach(function(th){
+      var arrow = th.querySelector('.arrow');
+      if (th.dataset.key === state.sortKey){
+        th.classList.add('sorted');
+        arrow.textContent = state.sortDir === 1 ? '↑' : '↓';
+      } else {
+        th.classList.remove('sorted');
+        arrow.textContent = '↕';
+      }
+    });
+  }
+
+  function setSort(key){
+    if (state.sortKey === key){
+      state.sortDir *= -1;
+    } else {
+      state.sortKey = key;
+      state.sortDir = (key === 'code' || key === 'name' || key === 'industry' || key === 'pe_fwd') ? 1 : -1;
+    }
+    state.page = 1;
+    applyAll();
+  }
+
+  var ZONE_ORDER = {cheap:0, fair:1, expensive:2, review:3, none:4};
+
+  function compare(a, b, key){
+    var av = a[key], bv = b[key];
+    if (key === 'valuation_zone'){
+      av = ZONE_ORDER[av === null ? 'none' : av];
+      bv = ZONE_ORDER[bv === null ? 'none' : bv];
+    }
+    if (av === null || av === undefined) av = (typeof bv === 'number') ? -Infinity : '';
+    if (bv === null || bv === undefined) bv = (typeof av === 'number') ? -Infinity : '';
+    if (typeof av === 'string' || typeof bv === 'string'){
+      return String(av).localeCompare(String(bv), 'zh-TW');
+    }
+    return av - bv;
+  }
+
+  function applyAll(){
+    var q = state.search.trim().toLowerCase();
+    state.filtered = state.all.filter(function(r){
+      if (state.zone !== 'all'){
+        var z = r.valuation_zone === null ? 'none' : r.valuation_zone;
+        if (z !== state.zone) return false;
+      }
+      if (state.industry !== 'all' && (r.industry || '未分類') !== state.industry) return false;
+      if (state.minQuality > 0 && !(r.q_pass !== null && r.q_pass !== undefined && r.q_pass >= state.minQuality)) return false;
+      if (state.maxPe > 0 && !(r.pe_fwd !== null && r.pe_fwd !== undefined && r.pe_fwd <= state.maxPe)) return false;
+      if (!q) return true;
+      return r.code.toLowerCase().indexOf(q) !== -1 || r.name.toLowerCase().indexOf(q) !== -1;
+    });
+    var sk = state.sortKey;
+    state.filtered.sort(function(a,b){
+      // 沒有數字的列不論升冪降冪都排在最後(評價欄另有自己的順序)
+      if (sk !== 'valuation_zone'){
+        var an = a[sk] === null || a[sk] === undefined, bn = b[sk] === null || b[sk] === undefined;
+        if (an !== bn) return an ? 1 : -1;
+      }
+      return compare(a,b,sk) * state.sortDir;
+    });
+    if (state.page > totalPages()) state.page = 1;
+    renderTable();
+    updateHeaderSortIndicator();
+  }
+
+  function totalPages(){
+    return Math.max(1, Math.ceil(state.filtered.length / state.pageSize));
+  }
+
+  function renderTable(){
+    var tbody = document.getElementById('tbody');
+    var empty = document.getElementById('emptyState');
+    tbody.innerHTML = '';
+    if (state.filtered.length === 0){
+      empty.hidden = false;
+      document.getElementById('pageInfo').textContent = '';
+      document.getElementById('prevBtn').disabled = true;
+      document.getElementById('nextBtn').disabled = true;
+      return;
+    }
+    empty.hidden = true;
+    var start = (state.page - 1) * state.pageSize;
+    var pageRows = state.filtered.slice(start, start + state.pageSize);
+    var frag = document.createDocumentFragment();
+    pageRows.forEach(function(r){
+      var tr = document.createElement('tr');
+      tr.dataset.code = r.code;
+      tr.innerHTML = activeColumns().map(function(col){ return renderCell(col.key, r); }).join('');
+      frag.appendChild(tr);
+    });
+    tbody.appendChild(frag);
+
+    document.getElementById('pageInfo').textContent =
+      '第 ' + state.page + ' / ' + totalPages() + ' 頁 · 共 ' + state.filtered.length.toLocaleString('zh-TW') + ' 檔';
+    document.getElementById('prevBtn').disabled = state.page <= 1;
+    document.getElementById('nextBtn').disabled = state.page >= totalPages();
+  }
+
+  function renderStats(){
+    var total = state.all.length;
+    var cheap = state.all.filter(function(r){return r.valuation_zone==='cheap'}).length;
+    var fair = state.all.filter(function(r){return r.valuation_zone==='fair'}).length;
+    var exp = state.all.filter(function(r){return r.valuation_zone==='expensive'}).length;
+    var review = state.all.filter(function(r){return r.valuation_zone==='review'}).length;
+    var cheapQ = state.all.filter(function(r){return r.valuation_zone==='cheap' && r.q_pass >= 7}).length;
+    var html =
+      '<div class="stat"><div class="n mono">' + total.toLocaleString('zh-TW') + '</div><div class="l">追蹤股票數</div></div>' +
+      '<div class="stat cheap"><div class="n mono">' + cheap.toLocaleString('zh-TW') + '</div><div class="l">現價低於便宜價</div></div>' +
+      '<div class="stat fair"><div class="n mono">' + fair.toLocaleString('zh-TW') + '</div><div class="l">落在合理區間</div></div>' +
+      '<div class="stat exp"><div class="n mono">' + exp.toLocaleString('zh-TW') + '</div><div class="l">高於合理價</div></div>' +
+      '<div class="stat review"><div class="n mono">' + review.toLocaleString('zh-TW') + '</div><div class="l">殖利率過高待覆核</div></div>' +
+      '<div class="stat cheap"><div class="n mono">' + cheapQ.toLocaleString('zh-TW') + '</div><div class="l">便宜且品質達 7 項以上</div></div>';
+    document.getElementById('stats').innerHTML = html;
+  }
+
+  // ---- stock detail modal: 近四季EPS / 今年營收 / 近三年配息率 ----
+  function fmtBarVal(v){
+    if (v === null || v === undefined) return '—';
+    return v.toLocaleString('zh-TW', {maximumFractionDigits: 1});
+  }
+
+  function buildEpsBars(r){
+    var items = r.last4_eps || [];
+    if (items.length === 0) return '<p class="modal-note">尚無足夠的季度EPS資料。</p>';
+    var vals = items.map(function(x){ return x.eps; }).filter(function(v){ return v !== null; });
+    var maxAbs = Math.max.apply(null, vals.map(Math.abs).concat([0.01]));
+    var cols = items.map(function(x){
+      var h = x.eps === null ? 2 : Math.max(4, Math.round(Math.abs(x.eps) / maxAbs * 80));
+      var cls = 'bar-shape' + (x.eps !== null && x.eps < 0 ? ' neg' : '') + (x.estimated ? ' est' : '');
+      return '<div class="bar-col">' +
+        '<div class="bar-val mono">' + fmtBarVal(x.eps) + (x.estimated ? '<span class="src-est">估</span>' : '') + '</div>' +
+        '<div class="' + cls + '" style="height:' + h + 'px"></div>' +
+        '<div class="bar-label">' + x.q + '</div>' +
+      '</div>';
+    }).join('');
+    return '<div class="bars">' + cols + '</div>' +
+      (items.some(function(x){return x.estimated}) ? '<div class="modal-note">斜紋長條代表該季財報尚未公告,為推估值(算法見下方「估值提醒」)。</div>' : '');
+  }
+
+  function buildRevBars(r){
+    var items = (r.rev_this_year || []).filter(function(x){ return x.rev !== null; });
+    if (items.length === 0) return '<p class="modal-note">尚無今年營收資料。</p>';
+    var maxV = Math.max.apply(null, items.map(function(x){return x.rev}).concat([0.01]));
+    var cols = items.map(function(x){
+      var h = Math.max(4, Math.round(x.rev / maxV * 80));
+      var label = x.m.slice(2).replace(/^0/, '') + '月';
+      return '<div class="bar-col">' +
+        '<div class="bar-val mono">' + fmtBarVal(x.rev) + '</div>' +
+        '<div class="bar-shape" style="height:' + h + 'px"></div>' +
+        '<div class="bar-label">' + label + '</div>' +
+      '</div>';
+    }).join('');
+    return '<div class="bars rev-bars">' + cols + '</div>' +
+      '<div class="modal-note">今年累計營收 ' + fmtBarVal(r.rev_total_year) + ' 億元(單位:億元)。</div>';
+  }
+
+  function buildPayoutGrid(r){
+    var years = ['2024','2025','2026'];
+    var cells = years.map(function(y){
+      var v = r.payout_by_year ? r.payout_by_year[y] : null;
+      return '<div class="payout-cell"><div class="py">' + y + '年</div><div class="pv mono">' +
+        (v === null || v === undefined ? '—' : fmt2(v) + '%') + '</div></div>';
+    }).join('');
+    var yearsNote = (r.payout_years_used && r.payout_years_used.length < 3) ? '(僅' + r.payout_years_used.length + '年有資料)' : '';
+    var avgLine = (r.payout_median3 === null || r.payout_median3 === undefined)
+      ? '無足夠資料計算'
+      : '中位數(用於估算)<b>' + fmt2(r.payout_median3) + '%</b> · 平均值 ' + fmt2(r.payout_avg3) + '%' + yearsNote +
+        (r.high_payout_warning ? '<div class="modal-note" style="color:var(--zone-exp)">⚠ 近3年平均配息率超過100%,配息可能來自保留盈餘或非當期獲利,須留意可持續性。</div>' : '');
+    return '<div class="payout-grid">' + cells + '</div><div class="payout-avg">' + avgLine + '</div>';
+  }
+
+  function fmt2(v){ return v.toLocaleString('zh-TW', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+  function buildYoyTag(r){
+    if (r.eps_yoy_pct === null || r.eps_yoy_pct === undefined) return '';
+    var cls = r.eps_yoy_pct > 0 ? 'chg-up' : (r.eps_yoy_pct < 0 ? 'chg-down' : '');
+    var sign = r.eps_yoy_pct > 0 ? '+' : '';
+    return ' <span class="mono ' + cls + '" style="font-size:12px; font-weight:400">年增 ' + sign + fmt(r.eps_yoy_pct,1) + '%</span>';
+  }
+
+  function plain(v, d){
+    if (v === null || v === undefined) return '—';
+    return v.toLocaleString('zh-TW', {minimumFractionDigits: d, maximumFractionDigits: d});
+  }
+
+  // 估值提醒:把這檔股票被標記的原因與推估依據用白話列出來(手機沒有 hover,所以放在明細裡)
+  function buildNotes(r){
+    var notes = [];
+    if (r.valuation_zone === 'review'){
+      notes.push('推估殖利率 ' + plain(r.yield_pct,2) + '% 超過 12%,列為「待覆核」而不是便宜:這通常代表今年獲利含一次性項目、或配息率推估失真,請先查核財報。');
+    }
+    var rs = r.oneoff_reasons || [];
+    if (rs.indexOf('turnaround') !== -1) notes.push('去年全年虧損(EPS ' + plain(r.eps_last_year,2) + ' 元),今年推估轉盈;歷史配息率套在今年獲利上不一定適用。');
+    if (rs.indexOf('low_base') !== -1) notes.push('去年EPS僅 ' + plain(r.eps_last_year,2) + ' 元,基期過低,年增率與歷史配息率的參考性有限。');
+    if (rs.indexOf('eps_rev_gap') !== -1) notes.push('今年預估EPS年增 ' + plain(r.eps_yoy_pct,1) + '%,遠高於1~9月營收年增 ' + plain(r.rev_yoy_pct,1) + '%,獲利可能含業外或一次性項目。');
+    if (r.share_adj){
+      var sa = r.share_adj, so = sa.orig || {};
+      notes.push('今年股本有變動(股票分割、配發股票股利或減資):公司當時公告的 Q1、Q2 EPS 為 ' + plain(so.q1,2) + '、' + plain(so.q2,2) + ' 元,與 Q3 之後的股本不同,直接相加會失真。這裡依官方前三季累計EPS ' + plain(sa.cum,2) + ' 元,把 Q1、Q2 與去年的EPS乘上 ' + sa.k.toFixed(3) + ' 換算成目前股本(表格中標「換」的數字)。');
+    }
+    if (r.payout_capped) notes.push('近三年配息率中位數 ' + plain(r.payout_median3,1) + '% 超過100%,估算股利時以100%為上限。');
+    var c = r.q3_candidates;
+    if (c){
+      var parts = ['Q2×營收比例 ' + plain(c.q2_rev,2)];
+      if (c.h1_rev !== null && c.h1_rev !== undefined) parts.push('上半年×營收比例 ' + plain(c.h1_rev,2));
+      if (c.last_year !== null && c.last_year !== undefined) parts.push('去年同季 ' + plain(c.last_year,2));
+      notes.push('26Q3 財報尚未公告,推估值 ' + plain(r.q3,2) + ' 元取自以下候選值的中位數:' + parts.join('、') + '。');
+    }
+    var d = r.q4_candidates;
+    if (d){
+      var p4 = ['Q3×營收比例 ' + plain(d.q3_rev,2), '前三季平均×營收比例 ' + plain(d.ytd_rev,2)];
+      if (d.last_year !== null && d.last_year !== undefined) p4.push('去年Q4 ' + plain(d.last_year,2));
+      notes.push('Q4 推估值 ' + plain(r.q4,2) + ' 元取自以下候選值的中位數:' + p4.join('、') + '。');
+    }
+    if (notes.length === 0) return '';
+    return '<div class="modal-section"><h3>估值提醒</h3><ul class="note-list">' +
+      notes.map(function(n){ return '<li>' + n + '</li>'; }).join('') + '</ul></div>';
+  }
+
+  // ---- 近十日籌碼:外資/投信/自營商買賣超 + 成交量(資料來自台股趨勢雷達,chips.json) ----
+  function lotsCell(v){
+    if (v === null || v === undefined) return '<span class="na">—</span>';
+    var n = Math.round(v / 1000);
+    var cls = n > 0 ? 'chg-up' : (n < 0 ? 'chg-down' : '');
+    return '<span class="' + cls + '">' + (n > 0 ? '+' : '') + n.toLocaleString('zh-TW') + '</span>';
+  }
+  function ymdSlash(d){ return d.slice(0,4) + '/' + d.slice(4,6) + '/' + d.slice(6); }
+
+  function chipsOf(r){
+    var c = state.chips && state.chips.stocks ? state.chips.stocks[r.code] : null;
+    return (c && c.d && c.d.length) ? c : null;
+  }
+
+  function buildChips(r){
+    var c = chipsOf(r);
+    if (!c) return '<p class="modal-note">尚無這檔股票的籌碼資料。</p>';
+    var n = c.d.length;
+    function sum(arr){
+      var t = 0, any = false;
+      arr.forEach(function(x){ if (x !== null && x !== undefined){ t += x; any = true; } });
+      return any ? t : null;
+    }
+    var hasGap = c.f.concat(c.t, c.s).some(function(x){ return x === null || x === undefined; });
+    var tiles = [['外資', c.f], ['投信', c.t], ['自營商', c.s]].map(function(p){
+      return '<div class="chip-tile"><div class="ck">' + p[0] + ' ' + n + '日合計</div><div class="cv">' + lotsCell(sum(p[1])) + '</div></div>';
+    }).join('');
+    var maxV = Math.max.apply(null, c.v.concat([1]));
+    var rows = '';
+    for (var i = n - 1; i >= 0; i--){
+      var pct = Math.round(c.v[i] / maxV * 100);
+      rows += '<tr><td class="mono">' + c.d[i].slice(4,6) + '/' + c.d[i].slice(6) + '</td>' +
+        '<td class="mono">' + lotsCell(c.f[i]) + '</td>' +
+        '<td class="mono">' + lotsCell(c.t[i]) + '</td>' +
+        '<td class="mono">' + lotsCell(c.s[i]) + '</td>' +
+        '<td class="mono vol" style="background-image:linear-gradient(var(--surface-2),var(--surface-2)); background-size:' + pct + '% 70%">' +
+          Math.round(c.v[i] / 1000).toLocaleString('zh-TW') + '</td></tr>';
+    }
+    var avgV = c.v.reduce(function(a, b){ return a + b; }, 0) / n;
+    var ratio = avgV > 0 ? (c.v[n-1] / avgV) : null;
+    var asof = state.chips.asof ? ymdSlash(state.chips.asof) : '';
+    var stale = (asof && priceDate && asof < priceDate) ? '籌碼資料日期早於股價日期,代表趨勢雷達當天尚未更新。' : '';
+    return '<div class="chip-tiles">' + tiles + '</div>' +
+      '<table class="chip-table"><thead><tr><th>日期</th><th>外資</th><th>投信</th><th>自營商</th><th>成交量</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<div class="modal-note">單位:張,紅色買超、綠色賣超。' + n + '日均量 ' + Math.round(avgV / 1000).toLocaleString('zh-TW') + ' 張' +
+        (ratio === null ? '' : ',最新一日為均量的 ' + ratio.toFixed(2) + ' 倍') + '。' +
+        (hasGap ? '「—」代表當日沒有這檔的法人資料。' : '') +
+        (asof ? '籌碼資料更新至 ' + asof + '(來源:台股趨勢雷達)。' : '') + stale + '</div>';
+  }
+
+  function openDetail(code){
+    var r = state.byCode[code];
+    if (!r) return;
+    var chgClass = (r.chg_pct === null) ? '' : (r.chg_pct > 0 ? 'chg-up' : (r.chg_pct < 0 ? 'chg-down' : ''));
+    var chgSign = (r.chg_pct !== null && r.chg_pct > 0) ? '+' : '';
+    var modal = document.getElementById('modalBody');
+    modal.innerHTML =
+      '<div class="modal-head">' +
+        '<div><h2>' + r.name + '</h2><div class="mcode">' + r.code + (r.industry ? ' · ' + r.industry : '') + '</div></div>' +
+        '<div style="display:flex; align-items:flex-start; gap:10px">' +
+          '<div><div class="modal-price mono">' + fmt(r.price,1) + '</div>' +
+          (r.pe_fwd !== null && r.pe_fwd !== undefined ? '<div class="mono" style="text-align:right; font-size:11px; color:var(--text-muted)">本益比 ' + peTxt(r) + ' 倍</div>' : '') +
+          '<div class="mono ' + chgClass + '" style="text-align:right; font-size:12px">' + (r.chg_pct===null?'—':chgSign+fmt(r.chg_pct,2)+'%') + '</div></div>' +
+          '<button class="modal-close" id="modalCloseBtn" aria-label="關閉">✕</button>' +
+        '</div>' +
+      '</div>' +
+      buildQuality(r) +
+      '<div class="modal-section"><h3>近' + (chipsOf(r) ? chipsOf(r).d.length : 10) + '個交易日籌碼(張)</h3>' + buildChips(r) + '</div>' +
+      '<div class="modal-section"><h3>近四季 EPS(元)' + buildYoyTag(r) + '</h3>' + buildEpsBars(r) + '</div>' +
+      '<div class="modal-section"><h3>今年月營收(億元)</h3>' + buildRevBars(r) + '</div>' +
+      '<div class="modal-section"><h3>近三年股利分配率</h3>' + buildPayoutGrid(r) + '</div>' +
+      buildNotes(r);
+    document.getElementById('modalBackdrop').hidden = false;
+    document.getElementById('modalCloseBtn').addEventListener('click', closeDetail);
+  }
+
+  function closeDetail(){
+    document.getElementById('modalBackdrop').hidden = true;
+  }
+
+  function setView(v){
+    state.view = (v === 'qual') ? 'qual' : 'val';
+    document.querySelectorAll('#viewToggle button').forEach(function(b){ b.classList.toggle('active', b.dataset.view === state.view); });
+    buildHeader();
+    renderTable();
+  }
+
+  function wireControls(){
+    document.getElementById('tbody').addEventListener('click', function(e){
+      var tr = e.target.closest('tr');
+      if (!tr || !tr.dataset.code) return;
+      openDetail(tr.dataset.code);
+    });
+    document.getElementById('modalBackdrop').addEventListener('click', function(e){
+      if (e.target.id === 'modalBackdrop') closeDetail();
+    });
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') closeDetail();
+    });
+    document.getElementById('searchInput').addEventListener('input', function(e){
+      state.search = e.target.value;
+      state.page = 1;
+      applyAll();
+    });
+    document.getElementById('zoneFilter').addEventListener('click', function(e){
+      var btn = e.target.closest('button');
+      if (!btn) return;
+      document.querySelectorAll('#zoneFilter button').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.zone = btn.dataset.zone;
+      state.page = 1;
+      applyAll();
+    });
+    document.getElementById('industrySelect').addEventListener('change', function(e){
+      state.industry = e.target.value;
+      state.page = 1;
+      applyAll();
+    });
+    document.getElementById('peSelect').addEventListener('change', function(e){
+      state.maxPe = parseFloat(e.target.value) || 0;
+      state.page = 1;
+      applyAll();
+    });
+    document.getElementById('qualitySelect').addEventListener('change', function(e){
+      state.minQuality = parseInt(e.target.value, 10) || 0;
+      state.page = 1;
+      applyAll();
+    });
+    document.getElementById('viewToggle').addEventListener('click', function(e){
+      var btn = e.target.closest('button');
+      if (!btn || btn.dataset.view === state.view) return;
+      setView(btn.dataset.view);
+      try { localStorage.setItem('dvr_view', state.view); } catch (err) {}
+    });
+    document.getElementById('pageSizeSelect').addEventListener('change', function(e){
+      state.pageSize = parseInt(e.target.value, 10);
+      state.page = 1;
+      renderTable();
+    });
+    document.getElementById('prevBtn').addEventListener('click', function(){
+      if (state.page > 1){ state.page--; renderTable(); window.scrollTo({top:0, behavior:'smooth'}); }
+    });
+    document.getElementById('nextBtn').addEventListener('click', function(){
+      if (state.page < totalPages()){ state.page++; renderTable(); window.scrollTo({top:0, behavior:'smooth'}); }
+    });
+  }
+
+  function finPeriodText(p){
+    var m = /^(\d+)Q(\d)$/.exec(p || '');
+    return m ? (+m[1] + 1911) + ' 年第 ' + m[2] + ' 季' : (p || '');
+  }
+
+  var priceDate = null;
+  function boot(data){
+    state.all = data;
+    state.byCode = {};
+    // 產業別來自 industry.json(代號→產業),stocks.json 本身不存;對不到的顯示「—」,篩選器歸在「未分類」
+    var indMap = state.industryMap || {}, indCount = {};
+    data.forEach(function(r){
+      state.byCode[r.code] = r;
+      r.industry = indMap[r.code] || null;
+      var k = r.industry || '未分類';
+      indCount[k] = (indCount[k] || 0) + 1;
+    });
+    var indSel = document.getElementById('industrySelect');
+    Object.keys(indCount).sort(function(a, b){
+      if (a === '未分類') return 1;
+      if (b === '未分類') return -1;
+      return indCount[b] - indCount[a] || a.localeCompare(b, 'zh-TW');
+    }).forEach(function(k){
+      if (k === '未分類' && Object.keys(indMap).length === 0) return;
+      var o = document.createElement('option');
+      o.value = k; o.textContent = k + ' (' + indCount[k] + ')';
+      indSel.appendChild(o);
+    });
+    indSel.hidden = Object.keys(indMap).length === 0;
+    prepQuality(data);
+    prepPe(data);
+    try { if (localStorage.getItem('dvr_view') === 'qual') state.view = 'qual'; } catch (err) {}
+    document.querySelectorAll('#viewToggle button').forEach(function(b){ b.classList.toggle('active', b.dataset.view === state.view); });
+    buildHeader();
+    renderStats();
+    wireControls();
+    applyAll();
+    var q3actual = data.filter(function(r){return r.q3_source==='actual'}).length;
+    var q3est = data.filter(function(r){return r.q3_source && r.q3_source.indexOf('estimated')===0}).length;
+    document.getElementById('subtitle').innerHTML =
+      (priceDate ? '<b>股價更新至 ' + priceDate + ' 收盤</b> · ' : '') +
+      '以您上傳的三大法人選股工具資料(EPS、股利分配率、月營收)為基礎,換算每檔個股今年累計EPS、預估股利與便宜價/合理價。' +
+      '目前第三季財報已公告 ' + q3actual + ' 檔,其餘 ' + q3est + ' 檔為推估值,將隨申報期(約11月中)陸續轉為實際數字。';
+    var noEstCount = data.filter(function(r){return r.no_est_reason}).length;
+    var warnCount = data.filter(function(r){return r.high_payout_warning}).length;
+    var reviewCount = data.filter(function(r){return r.valuation_zone==='review'}).length;
+    var oneoffCount = data.filter(function(r){return r.oneoff_warning}).length;
+    var capCount = data.filter(function(r){return r.payout_capped}).length;
+    var priceNote = priceDate
+      ? '股價為 ' + priceDate + ' 證交所/櫃買中心收盤價,每個交易日收盤後自動更新(殖利率與便宜/合理/昂貴/待覆核評價隨股價重算;EPS、配息率等基本面數字仍以上傳的CSV為準),非即時報價。'
+      : '股價為CSV匯出當下的收盤價快照,非即時報價。';
+    document.getElementById('footNote').innerHTML =
+      '資料來源:使用者提供之選股工具匯出CSV(EPS、股利分配率、月營收三份,快照時間約為資料建置當下)。' +
+      priceNote + '本頁僅為量化試算工具,便宜價/合理價/殖利率皆為估算結果,受配息政策變動、推估誤差影響,不構成投資建議,買賣請自行判斷並查核最新財報。' +
+      ' 當個股今年累計EPS為負,或近三年配息率中位數為負/零時,無法用「今年EPS×配息率中位數」合理推估股利,評價欄會顯示「今年虧損」或「配息率異常」而非數字(目前共 ' + noEstCount + ' 檔屬此情況)。' +
+      ' 另有 ' + warnCount + ' 檔近3年平均配息率超過100%,配息率欄位會標示⚠提醒留意可持續性;其中配息率中位數超過100%的 ' + capCount + ' 檔,估算股利時以100%為上限。' +
+      ' 推估殖利率超過12%的 ' + reviewCount + ' 檔列為「待覆核」;年增率旁標示「!」(獲利可能含一次性因素)的共 ' + oneoffCount + ' 檔。' +
+      (data.some(function(r){return r.share_adj}) ? ' 今年股本有變動、已換算 Q1/Q2 與去年EPS的個股共 ' + data.filter(function(r){return r.share_adj}).length + ' 檔。' : '') +
+      ' 品質分數:' + (state.fund && state.fund.period ? 'ROE、毛利率、營業利益率、負債比取自證交所/櫃買中心開放資料的 ' + finPeriodText(state.fund.period) + '財報(' + (state.fund.asof ? ymdSlash(state.fund.asof) + ' 抓取,' : '') + '共 ' + Object.keys(state.fund.stocks || {}).length + ' 檔,其中官方沒有、改用估價表補值的 ' + Object.keys(state.fund.stocks || {}).filter(function(k){return state.fund.stocks[k].src === 'x'}).length + ' 檔);' : '財報四項目前沒有資料;') +
+      '趨勢、法人動向與近3月營收年增隨每日籌碼檔更新' + (state.chips && state.chips.asof ? '(目前至 ' + ymdSlash(state.chips.asof) + ')' : '') + '。';
+  }
+
+  var metaP = fetch('meta.json').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+  var chipsP = fetch('chips.json').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+  var industryP = fetch('industry.json').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+  var fundP = fetch('fundamentals.json').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+  Promise.all([fetch('stocks.json').then(function(r){ return r.json(); }), metaP, chipsP, industryP, fundP])
+    .then(function(res){
+      state.chips = res[2];
+      state.fund = res[4];
+      state.industryMap = (res[3] && res[3].map) || {};
+      var m = res[1];
+      if (m && /^\d{8}$/.test(m.price_date || '')) priceDate = m.price_date.slice(0,4) + '/' + m.price_date.slice(4,6) + '/' + m.price_date.slice(6);
+      boot(res[0]);
+    })
+    .catch(function(err){
+      document.getElementById('subtitle').textContent = '資料載入失敗:' + err.message;
+    });
+})();
+</script>
+
+</body></html>

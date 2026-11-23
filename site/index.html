@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>台股工具箱</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+/* layout concept: centered single column of tool cards, each a full launch target — no grid of unrelated widgets */
+:root{
+  --bg:#f3efe6; --surface:#ffffff; --border:#ddd3bd;
+  --text:#2a2420; --text-muted:#6b6256; --accent:#8a6a2f; --accent-ink:#5c4720;
+  --card1:#8a6a2f; --card2:#2f6b5e;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1b1812; --surface:#242019; --border:#3c352a;
+    --text:#efe8da; --text-muted:#aa9f8c; --accent:#d2a94f; --accent-ink:#e8c879;
+    --card1:#d2a94f; --card2:#5fb39f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1b1812; --surface:#242019; --border:#3c352a;
+  --text:#efe8da; --text-muted:#aa9f8c; --accent:#d2a94f; --accent-ink:#e8c879;
+  --card1:#d2a94f; --card2:#5fb39f;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--text); min-height:100%;
+  font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  padding-left:max(16px, env(safe-area-inset-left,0px));
+  padding-right:max(16px, env(safe-area-inset-right,0px));
+}
+html,body{height:100%}
+.wrap{
+  max-width:720px; margin:0 auto; min-height:100%;
+  display:flex; flex-direction:column; justify-content:center;
+  padding-block:48px;
+}
+.eyebrow{font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink); font-weight:700; margin-bottom:8px; text-align:center}
+h1{
+  font-family:"Noto Serif TC",serif; font-size:clamp(26px,5vw,36px); font-weight:700;
+  text-align:center; margin:0 0 10px; text-wrap:balance;
+}
+.sub{color:var(--text-muted); text-align:center; font-size:14px; max-width:48ch; margin:0 auto 36px; line-height:1.7}
+
+.cards{display:flex; flex-direction:column; gap:16px}
+a.card{
+  display:flex; align-items:center; gap:18px;
+  background:var(--surface); border:1px solid var(--border); border-radius:14px;
+  padding:22px 24px; text-decoration:none; color:var(--text);
+  transition:transform .12s ease, border-color .12s ease;
+}
+a.card:hover{transform:translateY(-2px); border-color:var(--accent)}
+a.card:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.dot{
+  flex:none; width:44px; height:44px; border-radius:10px;
+  display:flex; align-items:center; justify-content:center;
+  font-family:"IBM Plex Mono",monospace; font-weight:500; font-size:13px; color:#fff;
+}
+.card1 .dot{background:var(--card1)}
+.card2 .dot{background:var(--card2)}
+.card-body{flex:1; min-width:0}
+.card-title{font-family:"Noto Serif TC",serif; font-weight:700; font-size:18px; margin-bottom:4px}
+.card-desc{font-size:13px; color:var(--text-muted); line-height:1.6}
+.card-arrow{flex:none; color:var(--text-muted); font-size:18px}
+
+.foot{text-align:center; margin-top:40px; font-size:12px; color:var(--text-muted); line-height:1.8}
+</style>
+</head><body>
+<div class="wrap">
+  <div class="eyebrow">個人台股分析工具</div>
+  <h1>台股工具箱</h1>
+  <p class="sub">選擇要開啟的工具。資料每個交易日由 GitHub Actions 自動更新;個股要深入分析時,在趨勢雷達點「複製 Gemini 分析提示詞」再貼到 Gemini。</p>
+
+  <div class="cards">
+    <a class="card card1" href="trend/">
+      <span class="dot">雷達</span>
+      <span class="card-body">
+        <span class="card-title">台股趨勢雷達</span>
+        <span class="card-desc">全市場價量走勢、三大法人買賣超與估值快照,每日排程更新,可搜尋篩選個股趨勢(上升/下降/盤整/突破)。</span>
+      </span>
+      <span class="card-arrow">→</span>
+    </a>
+
+    <a class="card card2" href="dividend/">
+      <span class="dot">股利</span>
+      <span class="card-body">
+        <span class="card-title">股利估價雷達</span>
+        <span class="card-desc">依今年季度EPS與近三年配息率,換算預估股利、便宜價/合理價與殖利率,可排序篩選找出被低估的個股。</span>
+      </span>
+      <span class="card-arrow">→</span>
+    </a>
+  </div>
+
+  <p class="foot">兩個工具的計算方式與限制請見各工具頁面底部說明。本站僅為量化篩選工具,不構成投資建議。</p>
+</div>
+</body></html>
