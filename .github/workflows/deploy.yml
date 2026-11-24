@@ -6,7 +6,9 @@ on:
     paths: ['site/**']
   workflow_dispatch:
   workflow_call:
-
+  schedule:
+    - cron: '20 15 * * 1-5'
+    - cron: '20 1 * * 2-6'
 permissions:
   contents: read
   pages: write
