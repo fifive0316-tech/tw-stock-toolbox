@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MPT 投資組合最佳化</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* layout concept: left rail of inputs (assets / period / risk), right column reads top-down as the
+   argument: three portfolio verdicts → frontier chart → weights → in-sample growth → correlation → method */
+:root{
+  --bg:#f3efe6; --surface:#ffffff; --surface-2:#ece6d8; --border:#ddd3bd;
+  --text:#2a2420; --text-muted:#6b6256; --accent:#8a6a2f; --accent-ink:#5c4720;
+  --gmv:#0f7a62; --ms:#a97e1f; --agg:#a63a53; --bench:#7d7567;
+  --neg:#3d5a99; --pos:#b0413e;
+  --s0:#3d5a99; --s1:#2f8f7a; --s2:#d2a94f;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1b1812; --surface:#242019; --surface-2:#2c2720; --border:#3c352a;
+    --text:#efe8da; --text-muted:#aa9f8c; --accent:#d2a94f; --accent-ink:#e8c879;
+    --gmv:#4fd3ae; --ms:#e3b94f; --agg:#f08aa0; --bench:#9a9182;
+    --neg:#7f9ee6; --pos:#ea7b76;
+    --s0:#5d7bc4; --s1:#3fb39a; --s2:#e3b94f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1b1812; --surface:#242019; --surface-2:#2c2720; --border:#3c352a;
+  --text:#efe8da; --text-muted:#aa9f8c; --accent:#d2a94f; --accent-ink:#e8c879;
+  --gmv:#4fd3ae; --ms:#e3b94f; --agg:#f08aa0; --bench:#9a9182;
+  --neg:#7f9ee6; --pos:#ea7b76;
+  --s0:#5d7bc4; --s1:#3fb39a; --s2:#e3b94f;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0; background:var(--bg); color:var(--text);
+  font:14px/1.6 "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums}
+header.top{padding:22px max(20px,env(safe-area-inset-left,0px)) 14px; max-width:1320px; margin:0 auto;
+  display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px 20px}
+h1{font-family:"Noto Serif TC",serif; font-size:clamp(22px,3.2vw,28px); margin:0; font-weight:700}
+.sub{color:var(--text-muted); font-size:13px; flex:1 1 320px}
+.badges{display:flex; gap:8px; flex-wrap:wrap}
+.badge{background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:3px 12px; font-size:12px; color:var(--text-muted)}
+.badge b{color:var(--text); font-weight:600}
+
+.layout{max-width:1320px; margin:0 auto; padding:0 max(20px,env(safe-area-inset-left,0px)) 40px;
+  display:grid; grid-template-columns:300px minmax(0,1fr); gap:20px; align-items:start}
+@media (max-width:900px){ .layout{grid-template-columns:1fr} }
+
+.panel{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px 18px}
+.rail{position:sticky; top:12px; display:flex; flex-direction:column; gap:16px; max-height:calc(100vh - 24px); overflow:auto}
+@media (max-width:900px){ .rail{position:static; max-height:none} }
+.rail h2,.panel h2{font-size:13px; letter-spacing:.06em; color:var(--accent-ink); margin:0 0 10px; font-weight:700}
+.panel h2 small{font-weight:400; color:var(--text-muted); letter-spacing:0; margin-left:6px}
+.grp-label{font-size:12px; color:var(--text-muted); margin:10px 0 6px; display:flex; justify-content:space-between}
+.grp-label button{all:unset; cursor:pointer; color:var(--accent); font-size:12px}
+.chips{display:flex; flex-wrap:wrap; gap:6px}
+.chip{border:1px solid var(--border); background:var(--surface); color:var(--text-muted); border-radius:8px;
+  padding:4px 8px; font-size:12px; cursor:pointer; line-height:1.3; text-align:left}
+.chip .c{font-family:"IBM Plex Mono",monospace; font-size:11px; display:block; opacity:.8}
+.chip[aria-pressed="true"]{background:var(--accent); border-color:var(--accent); color:#fff}
+:root[data-theme="dark"] .chip[aria-pressed="true"]{color:#1b1812}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .chip[aria-pressed="true"]{color:#1b1812} }
+.chip.on{background:var(--accent); border-color:var(--accent); color:#fff; display:inline-flex; align-items:center; gap:6px}
+.chip.on .c{display:inline; opacity:.85}
+.chip.on .x{font-size:14px; line-height:1; opacity:.8}
+:root[data-theme="dark"] .chip.on{color:#1b1812}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .chip.on{color:#1b1812} }
+.combo{position:relative; margin:10px 0 10px}
+.combo input{width:100%; background:var(--surface-2); border:1px solid var(--border); color:var(--text); border-radius:9px;
+  padding:8px 10px; font:inherit; font-size:13px}
+.combo input:focus{outline:2px solid var(--accent); outline-offset:0; border-color:transparent}
+.combo-list{position:absolute; left:0; right:0; top:calc(100% + 4px); max-height:340px; overflow:auto; margin:0; padding:4px;
+  list-style:none; background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.18); z-index:10}
+.combo-list li{display:grid; grid-template-columns:16px 62px minmax(0,1fr); column-gap:6px; padding:6px 8px; border-radius:7px; cursor:pointer; font-size:13px}
+.combo-list li.active{background:var(--surface-2)}
+.combo-list li .ck{color:var(--accent); font-weight:700; visibility:hidden}
+.combo-list li[aria-selected="true"] .ck{visibility:visible}
+.combo-list li[aria-selected="true"] .on{font-weight:700}
+.combo-list li .oc{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--text-muted)}
+.combo-list li .on{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.combo-list li .oi{grid-column:3; font-size:11px; color:var(--text-muted)}
+.combo-list .note{display:block; padding:6px 8px; font-size:12px; color:var(--text-muted); cursor:default}
+.chip:focus-visible,.seg button:focus-visible,.btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.presets{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px}
+.btn{border:1px solid var(--border); background:var(--surface-2); color:var(--text); border-radius:8px; padding:4px 10px; font-size:12px; cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.seg{display:flex; border:1px solid var(--border); border-radius:9px; overflow:hidden}
+.seg button{flex:1; border:0; background:var(--surface); color:var(--text-muted); padding:7px 4px; font-size:13px; cursor:pointer}
+.seg button+button{border-left:1px solid var(--border)}
+.seg button[aria-pressed="true"]{background:var(--accent); color:#fff; font-weight:700}
+:root[data-theme="dark"] .seg button[aria-pressed="true"]{color:#1b1812}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .seg button[aria-pressed="true"]{color:#1b1812} }
+.field{display:flex; align-items:center; gap:8px; margin-top:8px; font-size:13px}
+.field label{color:var(--text-muted); min-width:4.5em}
+.field input,.field select{flex:1; min-width:0; background:var(--surface-2); border:1px solid var(--border); color:var(--text);
+  border-radius:7px; padding:5px 8px; font:inherit; font-size:13px}
+.hint{font-size:12px; color:var(--text-muted); margin:8px 0 0; line-height:1.6}
+.warn{color:var(--agg)}
+
+.main{display:flex; flex-direction:column; gap:18px; min-width:0}
+.verdicts{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px}
+@media (max-width:700px){ .verdicts{grid-template-columns:1fr} }
+.vcard{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px 16px; position:relative}
+.vcard::before{content:""; position:absolute; left:0; top:14px; bottom:14px; width:3px; border-radius:0 3px 3px 0; background:var(--c)}
+.vcard.sel{border-color:var(--c); box-shadow:0 0 0 1px var(--c) inset}
+.vcard .k{font-size:12px; color:var(--text-muted); display:flex; justify-content:space-between; gap:6px}
+.vcard .k .tag{color:var(--c); font-weight:700}
+.vcard .name{font-family:"Noto Serif TC",serif; font-weight:700; font-size:16px; margin:2px 0 8px}
+.vcard .nums{display:grid; grid-template-columns:repeat(3,1fr); gap:4px}
+.vcard .nums div{font-size:11px; color:var(--text-muted)}
+.vcard .nums b{display:block; font-family:"IBM Plex Mono",monospace; font-size:17px; color:var(--text); font-weight:600}
+.vcard .top3{font-size:12px; color:var(--text-muted); margin-top:8px; line-height:1.5}
+
+.chart-wrap{position:relative}
+canvas{display:block; width:100%}
+#frontier{height:420px}
+#growth{height:300px}
+@media (max-width:620px){ #frontier{height:330px} #growth{height:240px} }
+.legend{display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:var(--text-muted); margin-top:8px}
+.legend i{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:-1px}
+.legend i.ln{height:3px; width:16px; border-radius:2px; vertical-align:3px}
+.legend .grad{width:70px; height:8px; border-radius:4px; display:inline-block; vertical-align:0; margin:0 5px;
+  background:linear-gradient(90deg,var(--s0),var(--s1),var(--s2))}
+.tip{position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--border); border-radius:8px;
+  padding:6px 9px; font-size:12px; box-shadow:0 4px 14px rgba(0,0,0,.15); white-space:nowrap; display:none; z-index:2}
+.tip b{font-weight:700}
+
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse; width:100%; font-size:13px}
+th,td{padding:6px 8px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap}
+th{font-size:12px; color:var(--text-muted); font-weight:500; background:var(--surface-2)}
+th:first-child,td:first-child{text-align:left}
+td.num{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums}
+td .nm{color:var(--text-muted); font-size:12px; margin-left:6px}
+.wcell{display:flex; align-items:center; gap:6px; justify-content:flex-end}
+.wbar{width:44px; height:7px; background:var(--surface-2); border-radius:4px; overflow:hidden}
+.wbar span{display:block; height:100%; border-radius:4px}
+th.selcol{color:var(--text); font-weight:700}
+.heat td{font-family:"IBM Plex Mono",monospace; font-size:11px; text-align:center; padding:4px 3px; min-width:42px}
+.heat th{font-family:"IBM Plex Mono",monospace; font-size:11px; padding:4px 3px; text-align:center}
+.heat th:first-child{text-align:left}
+.row2{display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:18px}
+@media (max-width:1100px){ .row2{grid-template-columns:1fr} }
+
+.method{font-size:13px; color:var(--text-muted); line-height:1.8}
+.method h3{font-size:14px; color:var(--text); margin:14px 0 4px}
+.method ul{margin:4px 0; padding-left:20px}
+.method code{font-family:"IBM Plex Mono",monospace; font-size:12px; background:var(--surface-2); padding:1px 5px; border-radius:4px}
+.empty{padding:40px; text-align:center; color:var(--text-muted)}
+footer{max-width:1320px; margin:0 auto; padding:0 20px 40px; font-size:12px; color:var(--text-muted)}
+</style>
+</head><body><script src="../nav.js"></script>
+
+<header class="top">
+  <h1>MPT 投資組合最佳化</h1>
+  <div class="sub">以現代投資組合理論(Markowitz)分析台股(全市場上市、上櫃、ETF)的風險、報酬與相關性,求出最小變異數(GMV)與最大夏普組合。</div>
+  <div class="badges">
+    <span class="badge">資料至 <b id="bAsof">–</b></span>
+    <span class="badge">計算期間 <b id="bRange">–</b></span>
+    <span class="badge">交易日 <b id="bDays">–</b></span>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="rail">
+    <section class="panel">
+      <h2>1. 選擇標的 <small id="selCount"></small></h2>
+      <div class="presets">
+        <button type="button" class="btn" data-preset="paper">專題 14 檔</button>
+        <button type="button" class="btn" data-preset="etf">ETF + 權值股</button>
+        <button type="button" class="btn" data-preset="div">高股息 ETF</button>
+        <button type="button" class="btn" data-preset="tech">電子權值</button>
+        <button type="button" class="btn" data-preset="none">清除</button>
+      </div>
+      <div class="combo">
+        <input id="q" type="text" role="combobox" aria-expanded="false" aria-controls="qList" aria-autocomplete="list"
+          aria-label="搜尋標的" placeholder="搜尋代號、名稱或產業,例:2330、台積、半導體" autocomplete="off">
+        <ul id="qList" class="combo-list" role="listbox" aria-label="搜尋結果" aria-multiselectable="true" hidden></ul>
+      </div>
+      <div class="chips" id="selChips"></div>
+      <p class="hint" id="universeHint"></p>
+    </section>
+
+    <section class="panel">
+      <h2>2. 計算期間</h2>
+      <div class="presets" id="periodBtns">
+        <button type="button" class="btn" data-years="1">近 1 年</button>
+        <button type="button" class="btn" data-years="3">近 3 年</button>
+        <button type="button" class="btn" data-years="5">近 5 年</button>
+        <button type="button" class="btn" data-span="paper">2020–2025</button>
+        <button type="button" class="btn" data-span="all">全部</button>
+      </div>
+      <div class="field"><label for="dStart">起日</label><input type="date" id="dStart"></div>
+      <div class="field"><label for="dEnd">迄日</label><input type="date" id="dEnd"></div>
+    </section>
+
+    <section class="panel">
+      <h2>3. 風險偏好</h2>
+      <div class="seg" id="prefSeg" role="group" aria-label="風險偏好">
+        <button type="button" data-pref="gmv">保守</button>
+        <button type="button" data-pref="ms" aria-pressed="true">平衡</button>
+        <button type="button" data-pref="agg">積極</button>
+      </div>
+      <p class="hint" id="prefHint"></p>
+      <div class="field"><label for="rf">無風險利率</label><input type="number" id="rf" value="1.5" step="0.1" min="0" max="10"><span>%</span></div>
+      <div class="field"><label for="nSim">模擬組數</label>
+        <select id="nSim"><option>1000</option><option selected>3000</option><option>5000</option><option>10000</option></select></div>
+    </section>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="empty" id="loading">載入價格資料中…</div>
+  </main>
+</div>
+
+<footer>資料來源:Yahoo Finance 還原權息日收盤價(含配息再投入),每個交易日自動更新。所有結果都是用「過去」資料算出的最佳權重(事後最佳化),未來報酬與風險不會相同。本頁僅為教學與量化研究工具,不構成投資建議。</footer>
+
+<script src="mpt-engine.js"></script>
+<script>
+(function(){
+'use strict';
+var PAPER = ['0050','0056','00878','2330','2317','2454','2308','2382','1101','1301','1216','2881','2882','2891'];
+var PRESETS = {
+  paper: PAPER,
+  etf: ['0050','0056','00878','2330','2317','2454','2881'],
+  div: ['0056','00878','00713','00919','00929','00940'],
+  tech: ['2330','2454','2317','2308','2382','3711','2303','3034','2379']
+};
+var MAX_SEL = 40;
+var GROUP_ORDER = { 'ETF':0, '上市':1, '上櫃':2 };
+var PREF = {
+  gmv:{label:'保守', name:'最小變異數 GMV', hint:'保守:採用 GMV —— 所有組合中波動最低、最保守的配置。'},
+  ms:{label:'平衡', name:'最大夏普 Max Sharpe', hint:'平衡:採用最大夏普組合 —— 每承擔一單位風險得到最多超額報酬,效率最高。'},
+  agg:{label:'積極', name:'積極成長', hint:'積極:效率前緣上報酬介於「最大夏普」與「最高報酬標的」中間的組合,願意承擔更高波動換取報酬。'}
+};
+var state = { list:[], byCode:{}, series:{}, asof:'', first:'', sel:[], start:'20200101', end:'20251231', pref:'ms', rf:0.015, nSim:3000, res:null };
+var $ = function(id){ return document.getElementById(id); };
+var fmtP = function(x, d){ return (x*100).toFixed(d==null?1:d) + '%'; };
+var ymd2iso = function(s){ return s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8); };
+var iso2ymd = function(s){ return s.replace(/-/g,''); };
+function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+/* ---------- 價格檔(每檔一個,選到才下載) ---------- */
+function decodeSeries(j){
+  var d = new Date(Date.UTC(+j.d0.slice(0,4), +j.d0.slice(4,6)-1, +j.d0.slice(6,8)));
+  var fmt = function(){ return d.getUTCFullYear() + String(d.getUTCMonth()+1).padStart(2,'0') + String(d.getUTCDate()).padStart(2,'0'); };
+  var dates = [fmt()];
+  for (var i = 0; i < j.dd.length; i++){ d.setUTCDate(d.getUTCDate() + j.dd[i]); dates.push(fmt()); }
+  var map = {}; dates.forEach(function(x, k){ map[x] = j.p[k]; });
+  return { dates:dates, px:j.p, map:map };
+}
+function loadSeries(code){
+  if (!state.series[code]){
+    state.series[code] = fetch('px/' + encodeURIComponent(code) + '.json')
+      .then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(decodeSeries)
+      .catch(function(e){ delete state.series[code]; throw e; });
+  }
+  return state.series[code];
+}
+// 把選到的標的對齊成 MPT.prepare 需要的格式(所有日期的聯集,缺的填 null)
+function buildData(assets){
+  var set = {};
+  assets.forEach(function(a){ a.ser.dates.forEach(function(d){ set[d] = 1; }); });
+  var dates = Object.keys(set).sort();
+  return { dates:dates, assets:assets.map(function(a){
+    return { code:a.code, name:a.name, group:a.group, px:dates.map(function(d){ var v = a.ser.map[d]; return v == null ? null : v; }) };
+  }) };
+}
+
+/* ---------- 選擇標的:可搜尋的下拉選單 ---------- */
+var combo = { items:[], active:-1 };
+function info(c){ return state.byCode[c]; }
+function search(q){
+  q = q.trim().toLowerCase();
+  if (!q){
+    var seen = {}, out = [];
+    state.sel.concat(PAPER, PRESETS.div, PRESETS.tech).forEach(function(c){ if (!seen[c] && info(c)){ seen[c] = 1; out.push(info(c)); } });
+    return out;
+  }
+  var res = [];
+  state.list.forEach(function(x){
+    var code = x.c.toLowerCase(), name = x.n.toLowerCase(), ind = (x.i || '').toLowerCase(), sc = -1;
+    if (code === q) sc = 0; else if (code.indexOf(q) === 0) sc = 1;
+    else if (name.indexOf(q) === 0) sc = 2; else if (name.indexOf(q) >= 0) sc = 3;
+    else if (ind && ind.indexOf(q) >= 0) sc = 4; else if (x.g.toLowerCase() === q) sc = 5;
+    if (sc >= 0) res.push([sc, x]);
+  });
+  res.sort(function(a, b){ return a[0]-b[0] || GROUP_ORDER[a[1].g]-GROUP_ORDER[b[1].g] || (a[1].c < b[1].c ? -1 : 1); });
+  return res.slice(0, 80).map(function(r){ return r[1]; });
+}
+function renderList(){
+  var ul = $('qList'), q = $('q').value;
+  combo.items = search(q);
+  if (combo.active >= combo.items.length) combo.active = combo.items.length - 1;
+  var html = q.trim() ? '' : '<li class="note" role="presentation">常用標的(輸入文字可搜尋全市場 '+state.list.length.toLocaleString()+' 檔)</li>';
+  if (!combo.items.length) html = '<li class="note" role="presentation">找不到「'+esc(q)+'」</li>';
+  combo.items.forEach(function(x, k){
+    var on = state.sel.indexOf(x.c) >= 0;
+    html += '<li role="option" id="opt-'+k+'" data-code="'+esc(x.c)+'" aria-selected="'+on+'"'+(k===combo.active?' class="active"':'')+'>'
+      + '<span class="ck">✓</span><span class="oc">'+esc(x.c)+'</span><span class="on">'+esc(x.n)+'</span>'
+      + '<span class="oi">'+[x.i, x.g, x.s ? x.s.slice(0,4)+' 年起' : ''].filter(Boolean).map(esc).join(' · ')+'</span></li>';
+  });
+  ul.innerHTML = html;
+  $('q').setAttribute('aria-activedescendant', combo.active >= 0 ? 'opt-'+combo.active : '');
+  var a = ul.querySelector('li.active'); if (a) a.scrollIntoView({ block:'nearest' });
+}
+function openList(){ $('qList').hidden = false; $('q').setAttribute('aria-expanded','true'); renderList(); }
+function closeList(){ $('qList').hidden = true; $('q').setAttribute('aria-expanded','false'); combo.active = -1; }
+function toggle(code){
+  var i = state.sel.indexOf(code);
+  if (i >= 0) state.sel.splice(i, 1);
+  else if (state.sel.length >= MAX_SEL){ $('universeHint').innerHTML = '<span class="warn">最多選 '+MAX_SEL+' 檔。</span>'; return; }
+  else state.sel.push(code);
+  syncChips(); schedule();
+  if (!$('qList').hidden) renderList();
+}
+function buildAssets(){
+  var q = $('q');
+  q.addEventListener('focus', openList);
+  q.addEventListener('input', function(){ combo.active = 0; openList(); });
+  q.addEventListener('blur', function(){ setTimeout(closeList, 120); });
+  q.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+      e.preventDefault(); if ($('qList').hidden) openList();
+      var n = combo.items.length; if (!n) return;
+      combo.active = e.key === 'ArrowDown' ? (combo.active + 1) % n : (combo.active - 1 + n) % n; renderList();
+    } else if (e.key === 'Enter'){
+      e.preventDefault(); var x = combo.items[combo.active < 0 ? 0 : combo.active]; if (x) toggle(x.c);
+    } else if (e.key === 'Escape'){ e.preventDefault(); closeList(); }
+    else if (e.key === 'Backspace' && !q.value && state.sel.length){ toggle(state.sel[state.sel.length-1]); }
+  });
+  $('qList').addEventListener('mousedown', function(e){ e.preventDefault(); });   // 點選時不要讓輸入框失焦
+  $('qList').addEventListener('click', function(e){
+    var li = e.target.closest('li[data-code]'); if (!li) return;
+    combo.active = +li.id.slice(4); toggle(li.dataset.code);
+  });
+  $('selChips').addEventListener('click', function(e){
+    var b = e.target.closest('button[data-code]'); if (b) toggle(b.dataset.code);
+  });
+  document.querySelectorAll('[data-preset]').forEach(function(b){
+    b.addEventListener('click', function(){
+      state.sel = (PRESETS[b.dataset.preset] || []).filter(function(c){ return info(c); });
+      syncChips(); schedule();
+    });
+  });
+}
+function syncChips(){
+  $('selChips').innerHTML = state.sel.map(function(c){
+    var x = info(c);
+    return '<button type="button" class="chip on" data-code="'+esc(c)+'" aria-label="移除 '+esc(c+' '+x.n)+'">'
+      + '<span class="c">'+esc(c)+'</span>'+esc(x.n)+'<span class="x" aria-hidden="true">×</span></button>';
+  }).join('');
+  $('selCount').textContent = '已選 ' + state.sel.length + ' 檔';
+  $('universeHint').textContent = '可選全市場 ' + state.list.length.toLocaleString() + ' 檔(ETF、上市、上櫃),最多同時選 ' + MAX_SEL + ' 檔。';
+}
+function buildPeriod(){
+  var first = state.first, last = state.asof;
+  [$('dStart'), $('dEnd')].forEach(function(i){ i.min = ymd2iso(first); i.max = ymd2iso(last); });
+  function setRange(s, e){ state.start = s < first ? first : s; state.end = e > last ? last : e;
+    $('dStart').value = ymd2iso(state.start); $('dEnd').value = ymd2iso(state.end); schedule(); }
+  $('periodBtns').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.years){
+      var d = new Date(+last.slice(0,4), +last.slice(4,6)-1, +last.slice(6,8));
+      d.setFullYear(d.getFullYear() - +b.dataset.years);
+      var s = d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+      setRange(s, last);
+    } else if (b.dataset.span === 'paper') setRange('20200101', '20251231');
+    else setRange(first, last);
+  });
+  $('dStart').addEventListener('change', function(){ if (this.value){ state.start = iso2ymd(this.value); schedule(); } });
+  $('dEnd').addEventListener('change', function(){ if (this.value){ state.end = iso2ymd(this.value); schedule(); } });
+  setRange(state.start, state.end);
+}
+function buildPref(){
+  $('prefSeg').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    state.pref = b.dataset.pref; syncPref(); render();
+  });
+  $('rf').addEventListener('input', function(){ var v = parseFloat(this.value); if (isFinite(v)){ state.rf = v/100; schedule(); } });
+  $('nSim').addEventListener('change', function(){ state.nSim = +this.value; schedule(); });
+  syncPref();
+}
+function syncPref(){
+  document.querySelectorAll('#prefSeg button').forEach(function(b){ b.setAttribute('aria-pressed', b.dataset.pref === state.pref); });
+  $('prefHint').textContent = PREF[state.pref].hint;
+}
+
+/* ---------- 計算 ---------- */
+var timer = null, seq = 0;
+function schedule(){ clearTimeout(timer); timer = setTimeout(compute, 150); }
+function fail(msg){ $('main').style.opacity = ''; state.res = { error:msg }; render(); }
+function compute(){
+  var my = ++seq, codes = state.sel.slice();
+  $('bRange').textContent = ymd2iso(state.start) + ' ~ ' + ymd2iso(state.end);
+  if (codes.length < 2) return fail('請至少選擇 2 檔標的。');
+  if (state.start >= state.end) return fail('起日必須早於迄日。');
+  var need = codes.concat(info('0050') && codes.indexOf('0050') < 0 ? ['0050'] : []);
+  $('main').style.opacity = '.55';
+  Promise.all(need.map(function(c){ return loadSeries(c).catch(function(){ return null; }); })).then(function(arr){
+    if (my !== seq) return;                       // 選擇又改了,丟掉這次結果
+    $('main').style.opacity = '';
+    var bad = codes.filter(function(_, i){ return !arr[i]; });
+    if (bad.length) return fail('以下標的價格檔載入失敗,請稍後再試或先移除:' + bad.join('、'));
+    var data = buildData(codes.map(function(c, i){ var x = info(c); return { code:c, name:x.n, group:x.g, ser:arr[i] }; }));
+    var p = MPT.prepare(data, codes, state.start, state.end);
+    $('bDays').textContent = p.rets.length;
+    if (p.rets.length < 60){
+      var late = codes.map(info).sort(function(a, b){ return a.s < b.s ? 1 : -1; })[0];
+      return fail('所選標的在這段期間共同有價格的交易日只有 ' + p.rets.length + ' 天,至少需要 60 天。'
+        + '最晚有資料的是 ' + late.c + ' ' + late.n + '(' + ymd2iso(late.s) + ' 起),可以移除它或把期間往後調。');
+    }
+    var s = MPT.stats(p.rets), rf = state.rf;
+    var opt = MPT.optimize(s.mu, s.cov, rf);
+    var sim = MPT.simulate(s.mu, s.cov, rf, state.nSim);
+    // 積極:前緣上報酬 = 最大夏普與最高報酬標的的中點
+    var target = opt.maxSharpe.ret + 0.5 * (opt.muMax - opt.maxSharpe.ret);
+    var agg = target > opt.maxSharpe.ret + 1e-6 ? MPT.targetReturn(s.mu, s.cov, rf, target, opt.L, opt.qHi) : opt.maxSharpe;
+    var ports = { gmv:opt.gmv, ms:opt.maxSharpe, agg:agg };
+    Object.keys(ports).forEach(function(k){ ports[k].bt = MPT.backtest(p.rets, ports[k].w); });
+    // 對照組:0050(期間內每天都有價格才畫)
+    var bench = null, bser = arr[codes.indexOf('0050') >= 0 ? codes.indexOf('0050') : need.length - 1];
+    if (bser && info('0050')){
+      var bp = p.dates.map(function(d){ return bser.map[d]; });
+      if (bp.every(function(x){ return x != null; })){
+        var br = []; for (var t = 1; t < bp.length; t++) br.push([bp[t]/bp[t-1]-1]);
+        bench = MPT.backtest(br, [1]);
+      }
+    }
+    var lateStart = p.dates[0] > state.start ? p.dates[0] : null;
+    state.res = { p:p, s:s, opt:opt, sim:sim, ports:ports, bench:bench, rf:rf, lateStart:lateStart };
+    render();
+  });
+}
+
+
+/* ---------- 畫面 ---------- */
+var COLORS = { gmv:'--gmv', ms:'--ms', agg:'--agg' };
+function top3(w, p){
+  return w.map(function(v,i){ return [v,i]; }).filter(function(x){ return x[0] > 0.0005; })
+    .sort(function(a,b){ return b[0]-a[0]; }).slice(0,3)
+    .map(function(x){ return esc(p.names[x[1]]) + ' ' + fmtP(x[0],0); }).join('、');
+}
+function render(){
+  var r = state.res, m = $('main');
+  if (!r) return;
+  if (r.error){ m.innerHTML = '<div class="panel empty">'+esc(r.error)+'</div>'; return; }
+  var p = r.p, s = r.s, html = '';
+  if (r.lateStart) html += '<div class="panel hint warn" style="margin:0">所選標的中有較晚上市者,共同資料從 '+ymd2iso(r.lateStart)+' 才開始,計算期間已自動縮短。</div>';
+
+  html += '<div class="verdicts">';
+  ['gmv','ms','agg'].forEach(function(k){
+    var pt = r.ports[k];
+    html += '<div class="vcard'+(state.pref===k?' sel':'')+'" style="--c:var('+COLORS[k]+')">'
+      + '<div class="k"><span>'+PREF[k].label+'</span>'+(state.pref===k?'<span class="tag">你的建議配置</span>':'')+'</div>'
+      + '<div class="name">'+PREF[k].name+'</div>'
+      + '<div class="nums"><div>年化報酬<b>'+fmtP(pt.ret)+'</b></div><div>年化波動<b>'+fmtP(pt.vol)+'</b></div><div>夏普值<b>'+pt.sharpe.toFixed(2)+'</b></div></div>'
+      + '<div class="top3">主要持股:'+top3(pt.w,p)+'</div></div>';
+  });
+  html += '</div>';
+
+  html += '<section class="panel"><h2>效率前緣 Efficient Frontier<small>'+r.sim.ret.length+' 組隨機權重 + 最佳化曲線</small></h2>'
+    + '<div class="chart-wrap"><canvas id="frontier" aria-label="效率前緣散佈圖"></canvas><div class="tip" id="tip"></div></div>'
+    + '<div class="legend"><span>隨機組合(依夏普值著色)低<span class="grad"></span>高</span>'
+    + '<span><i class="ln" style="background:var(--text)"></i>效率前緣</span>'
+    + '<span><i style="background:var(--gmv)"></i>GMV</span><span><i style="background:var(--ms)"></i>最大夏普</span>'
+    + '<span><i style="background:var(--agg)"></i>積極</span><span><i style="background:transparent;border:2px solid var(--text-muted)"></i>個別標的</span>'
+    + '<span><i class="ln" style="background:var(--ms);opacity:.5"></i>資本市場線(CML)</span></div></section>';
+
+  // 權重表
+  var order = p.codes.map(function(_,i){ return i; }).sort(function(a,b){ return r.ports[state.pref].w[b] - r.ports[state.pref].w[a]; });
+  html += '<div class="row2"><section class="panel"><h2>建議權重<small>依目前偏好排序</small></h2><div class="tbl-wrap"><table><thead><tr><th>標的</th>';
+  ['gmv','ms','agg'].forEach(function(k){ html += '<th class="'+(state.pref===k?'selcol':'')+'">'+PREF[k].label+'</th>'; });
+  html += '</tr></thead><tbody>';
+  order.forEach(function(i){
+    html += '<tr><td><span class="mono">'+p.codes[i]+'</span><span class="nm">'+esc(p.names[i])+'</span></td>';
+    ['gmv','ms','agg'].forEach(function(k){
+      var w = r.ports[k].w[i];
+      html += '<td class="num"><div class="wcell">'+(w>0.0005?fmtP(w):'<span style="opacity:.35">0</span>')
+        + '<span class="wbar"><span style="width:'+(w*100).toFixed(1)+'%;background:var('+COLORS[k]+')"></span></span></div></td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div></section>';
+
+  // 個別標的
+  html += '<section class="panel"><h2>個別標的風險與報酬<small>年化</small></h2><div class="tbl-wrap"><table><thead><tr><th>標的</th><th>報酬 μ</th><th>波動 σ</th><th>夏普</th></tr></thead><tbody>';
+  p.codes.map(function(_,i){ return i; }).sort(function(a,b){ return s.mu[b]-s.mu[a]; }).forEach(function(i){
+    html += '<tr><td><span class="mono">'+p.codes[i]+'</span><span class="nm">'+esc(p.names[i])+'</span></td><td class="num">'+fmtP(s.mu[i])
+      + '</td><td class="num">'+fmtP(s.vol[i])+'</td><td class="num">'+(s.vol[i]?((s.mu[i]-r.rf)/s.vol[i]).toFixed(2):'–')+'</td></tr>';
+  });
+  html += '</tbody></table></div></section></div>';
+
+  // 回測
+  html += '<section class="panel"><h2>期間內累積報酬<small>$1 起始、固定權重每日再平衡(含配息再投入)</small></h2>'
+    + '<div class="chart-wrap"><canvas id="growth" aria-label="累積報酬折線圖"></canvas><div class="tip" id="tip2"></div></div>'
+    + '<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>組合</th><th>累積報酬</th><th>年化(CAGR)</th><th>最大回撤</th></tr></thead><tbody>';
+  ['gmv','ms','agg'].forEach(function(k){
+    var b = r.ports[k].bt;
+    html += '<tr><td><i style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:var('+COLORS[k]+')"></i>'+PREF[k].name+'</td>'
+      + '<td class="num">'+fmtP(b.total)+'</td><td class="num">'+fmtP(b.cagr)+'</td><td class="num">'+fmtP(b.mdd)+'</td></tr>';
+  });
+  if (r.bench) html += '<tr><td><i style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:var(--bench)"></i>對照:0050 元大台灣50</td>'
+      + '<td class="num">'+fmtP(r.bench.total)+'</td><td class="num">'+fmtP(r.bench.cagr)+'</td><td class="num">'+fmtP(r.bench.mdd)+'</td></tr>';
+  html += '</tbody></table></div><p class="hint">注意:權重是用同一段期間的資料算出來的,回測結果必然好看(前視偏誤);實際投資請改用較早的期間求權重、再看之後的表現。</p></section>';
+
+  // 相關係數
+  html += '<section class="panel"><h2>相關係數矩陣<small>相關越低,分散風險效果越好</small></h2><div class="tbl-wrap"><table class="heat"><thead><tr><th></th>';
+  p.codes.forEach(function(c){ html += '<th>'+c+'</th>'; });
+  html += '</tr></thead><tbody>';
+  p.codes.forEach(function(c,i){
+    html += '<tr><th title="'+esc(p.names[i])+'">'+c+' <span style="font-family:inherit;color:var(--text-muted)">'+esc(p.names[i])+'</span></th>';
+    p.codes.forEach(function(_,j){
+      var v = s.corr[i][j], a = Math.min(Math.abs(v),1)*0.85;
+      html += '<td style="background:color-mix(in srgb, var('+(v>=0?'--pos':'--neg')+') '+(a*100).toFixed(0)+'%, transparent);'
+        + (a>0.5?'color:#fff':'')+'">'+v.toFixed(2)+'</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div></section>';
+
+  html += methodHtml();
+  m.innerHTML = html;
+  drawFrontier(); drawGrowth();
+}
+
+function methodHtml(){
+  return '<section class="panel method"><h2>計算方式與 MPT 理論</h2>'
+  + '<p>現代投資組合理論(Modern Portfolio Theory,馬可維茲 Markowitz 提出):透過分散投資,在給定風險下最大化預期報酬,或在給定報酬下最小化風險。核心是「風險 = 報酬的波動率」,投資不應只看單一資產,而要以「整體組合」衡量。</p>'
+  + '<h3>1. 報酬與風險的量化</h3><ul><li>報酬 μ:各標的還原權息日報酬的平均,乘以 252 年化。</li>'
+  + '<li>風險 σ:日報酬標準差,乘以 √252 年化。</li><li>組合報酬 = Σ wᵢμᵢ;組合風險 = √(wᵀΣw) —— 不是個別風險的加總,而是整體協同波動。</li></ul>'
+  + '<h3>2. 共變異矩陣:分散風險的關鍵</h3><ul><li>資產漲跌並不完全一致,用共變異數 Σ 與相關係數衡量互補程度。</li><li>相關性越低,組合起來越能降低整體風險。</li></ul>'
+  + '<h3>3. 效率前緣</h3><ul><li>以大量隨機權重(預設 3000 組)模擬出風險–報酬散點。</li>'
+  + '<li>再用最佳化求出向上彎曲的效率前緣:曲線上每一點都是「同樣風險下報酬最高、同樣報酬下風險最低」。</li></ul>'
+  + '<h3>4. 兩大最佳組合</h3><ul><li><b>GMV</b>(Global Minimum Variance):所有可能組合中風險最低、最保守的配置。</li>'
+  + '<li><b>最大夏普</b>(Max Sharpe):(報酬 − 無風險利率) ÷ 波動 最大,每單位風險的報酬最多、效率最高。</li>'
+  + '<li><b>積極</b>:前緣上報酬介於最大夏普與最高報酬標的之間的點。</li></ul>'
+  + '<h3>限制條件與做法</h3><ul><li>只做多:每檔權重 0%~100%、合計 100%,不放空、不借貸。</li>'
+  + '<li>最佳化在瀏覽器內用投影梯度法求解(與 Python <code>scipy.optimize.minimize</code> SLSQP 的結果一致),不需要後端伺服器或資料庫。</li>'
+  + '<li>價格每個交易日由 GitHub Actions 從 Yahoo Finance 抓取(<code>scripts/update_mpt.py</code>),只保留所選標的都有價格的交易日。</li></ul>'
+  + '<h3>MPT 的價值與限制</h3><ul><li>避免集中單一標的,用數據取代直覺,依保守/平衡/積極找出合適配置。</li>'
+  + '<li>但歷史平均報酬對未來的預測力很弱,最佳權重對輸入很敏感(換個期間可能差很多);請把結果當成「風險結構」的參考,而非買賣建議。</li></ul></section>';
+}
+
+/* ---------- 畫布工具 ---------- */
+function setupCanvas(cv){
+  var dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr);
+  var g = cv.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0);
+  return { g:g, w:w, h:h };
+}
+function niceTicks(lo, hi, n){
+  var span = hi - lo || 1, step = Math.pow(10, Math.floor(Math.log10(span/n))), err = span/n/step;
+  step *= err >= 7.5 ? 10 : err >= 3.5 ? 5 : err >= 1.5 ? 2 : 1;
+  var out = []; for (var v = Math.ceil(lo/step)*step; v <= hi + 1e-12; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+function mixColor(t){
+  var stops = [css('--s0'), css('--s1'), css('--s2')].map(function(h){
+    h = h.replace('#',''); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; });
+  t = Math.max(0, Math.min(1, t)); var seg = t < 0.5 ? 0 : 1, u = t < 0.5 ? t*2 : (t-0.5)*2;
+  var a = stops[seg], b = stops[seg+1];
+  return 'rgb('+[0,1,2].map(function(i){ return Math.round(a[i]+(b[i]-a[i])*u); }).join(',')+')';
+}
+function axes(g, W, H, pad, xs, ys, X, Y, xf, yf, xl, yl){
+  g.strokeStyle = css('--border'); g.fillStyle = css('--text-muted'); g.lineWidth = 1;
+  g.font = '11px "IBM Plex Mono", monospace';
+  g.textAlign = 'right'; g.textBaseline = 'middle';
+  ys.forEach(function(v){ var y = Y(v); g.beginPath(); g.moveTo(pad.l, y); g.lineTo(W-pad.r, y); g.stroke(); g.fillText(yf(v), pad.l-6, y); });
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  xs.forEach(function(v){ var x = X(v); g.fillText(xf(v), x, H-pad.b+6); });
+  g.font = '12px "Noto Sans TC", sans-serif';
+  if (xl) g.fillText(xl, (pad.l+W-pad.r)/2, H-16);
+  if (yl){ g.save(); g.translate(14, (pad.t+H-pad.b)/2); g.rotate(-Math.PI/2); g.fillText(yl, 0, 0); g.restore(); }
+}
+
+var hit = [];
+function drawFrontier(){
+  var r = state.res, cv = $('frontier'); if (!cv || !r || r.error) return;
+  var c = setupCanvas(cv), g = c.g, W = c.w, H = c.h, pad = { l:66, r:16, t:14, b:46 };
+  var sim = r.sim, s = r.s, p = r.p;
+  var vols = sim.vol.concat(s.vol), rets = sim.ret.concat(s.mu);
+  var x0 = 0, x1 = Math.max.apply(null, vols)*1.05;
+  var y0 = Math.min(0, Math.min.apply(null, rets)), y1 = Math.max.apply(null, rets);
+  var yp = (y1-y0)*0.06; y0 -= yp; y1 += yp;
+  var X = function(v){ return pad.l + (v-x0)/(x1-x0)*(W-pad.l-pad.r); };
+  var Y = function(v){ return H-pad.b - (v-y0)/(y1-y0)*(H-pad.t-pad.b); };
+  axes(g, W, H, pad, niceTicks(x0,x1,6), niceTicks(y0,y1,6), X, Y,
+    function(v){ return (v*100).toFixed(0)+'%'; }, function(v){ return (v*100).toFixed(0)+'%'; }, '年化波動(風險 σ)', '年化報酬 μ');
+  hit = [];
+  // 隨機組合
+  var smin = Math.min.apply(null, sim.sharpe), smax = Math.max.apply(null, sim.sharpe);
+  g.globalAlpha = 0.55;
+  for (var i = 0; i < sim.ret.length; i++){
+    g.fillStyle = mixColor((sim.sharpe[i]-smin)/((smax-smin)||1));
+    g.beginPath(); g.arc(X(sim.vol[i]), Y(sim.ret[i]), 1.8, 0, 6.2832); g.fill();
+  }
+  g.globalAlpha = 1;
+  // CML
+  var ms = r.ports.ms;
+  if (ms.vol > 0 && ms.sharpe > 0){
+    g.save(); g.strokeStyle = css('--ms'); g.globalAlpha = 0.55; g.setLineDash([5,4]); g.lineWidth = 1.3;
+    g.beginPath(); g.moveTo(X(0), Y(r.rf)); var xe = Math.min(x1, ms.vol*1.6); g.lineTo(X(xe), Y(r.rf + ms.sharpe*xe)); g.stroke(); g.restore();
+  }
+  // 效率前緣(GMV 以上的上半段)
+  var fr = r.opt.frontier.filter(function(f){ return f.ret >= r.ports.gmv.ret - 1e-9; });
+  g.strokeStyle = css('--text'); g.lineWidth = 2.2; g.beginPath();
+  fr.forEach(function(f,k){ k ? g.lineTo(X(f.vol), Y(f.ret)) : g.moveTo(X(f.vol), Y(f.ret)); }); g.stroke();
+  // 個別標的
+  g.font = '11px "IBM Plex Mono", monospace'; g.textAlign = 'left'; g.textBaseline = 'middle';
+  for (i = 0; i < s.mu.length; i++){
+    var ax = X(s.vol[i]), ay = Y(s.mu[i]);
+    g.strokeStyle = css('--text-muted'); g.lineWidth = 1.5; g.fillStyle = css('--surface');
+    g.beginPath(); g.arc(ax, ay, 4, 0, 6.2832); g.fill(); g.stroke();
+    g.fillStyle = css('--text-muted'); g.fillText(p.codes[i], ax+6, ay);
+    hit.push({ x:ax, y:ay, html:'<b>'+p.codes[i]+' '+esc(p.names[i])+'</b><br>報酬 '+fmtP(s.mu[i])+' · 波動 '+fmtP(s.vol[i]) });
+  }
+  // 三個最佳點
+  [['gmv','GMV'],['ms','最大夏普'],['agg','積極']].forEach(function(o){
+    var pt = r.ports[o[0]]; if (o[0]==='agg' && pt === r.ports.ms) return;
+    var px = X(pt.vol), py = Y(pt.ret);
+    star(g, px, py, state.pref===o[0] ? 10 : 8, css(COLORS[o[0]]), css('--surface'));
+    g.font = '700 12px "Noto Sans TC", sans-serif'; g.fillStyle = css(COLORS[o[0]]); g.textAlign = 'right';
+    g.fillText(o[1], px-12, py-10);
+    hit.push({ x:px, y:py, pri:1, html:'<b>'+PREF[o[0]].name+'</b><br>報酬 '+fmtP(pt.ret)+' · 波動 '+fmtP(pt.vol)+' · 夏普 '+pt.sharpe.toFixed(2)+'<br>'+top3(pt.w,p) });
+  });
+  for (i = 0; i < sim.ret.length; i += 1)
+    hit.push({ x:X(sim.vol[i]), y:Y(sim.ret[i]), pri:-1, idx:i });
+  bindTip(cv, $('tip'), function(mx, my){
+    var best = null, bd = 1e9;
+    hit.forEach(function(h){ var d = Math.hypot(h.x-mx, h.y-my) - (h.pri>0?6:h.pri<0?-2:3); if (d < bd){ bd = d; best = h; } });
+    if (!best || bd > 12) return null;
+    if (best.idx != null){
+      var k = best.idx;
+      return { x:best.x, y:best.y, html:'<b>隨機組合 #'+(k+1)+'</b><br>報酬 '+fmtP(sim.ret[k])+' · 波動 '+fmtP(sim.vol[k])+' · 夏普 '+sim.sharpe[k].toFixed(2)+'<br>'+top3(sim.w[k],p) };
+    }
+    return best;
+  });
+}
+function star(g, x, y, R, fill, stroke){
+  g.beginPath();
+  for (var k = 0; k < 10; k++){ var a = -Math.PI/2 + k*Math.PI/5, rr = k%2 ? R*0.45 : R; g.lineTo(x+rr*Math.cos(a), y+rr*Math.sin(a)); }
+  g.closePath(); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5; g.strokeStyle = stroke; g.stroke();
+}
+function bindTip(cv, tip, find){
+  cv.onmousemove = function(e){
+    var b = cv.getBoundingClientRect(), h = find(e.clientX-b.left, e.clientY-b.top);
+    if (!h){ tip.style.display = 'none'; return; }
+    tip.innerHTML = h.html; tip.style.display = 'block';
+    var tw = tip.offsetWidth, left = h.x + 14; if (left + tw > b.width) left = h.x - tw - 14;
+    tip.style.left = Math.max(0,left) + 'px'; tip.style.top = Math.max(0, h.y - tip.offsetHeight - 8) + 'px';
+  };
+  cv.onmouseleave = function(){ tip.style.display = 'none'; };
+}
+
+function drawGrowth(){
+  var r = state.res, cv = $('growth'); if (!cv || !r || r.error) return;
+  var c = setupCanvas(cv), g = c.g, W = c.w, H = c.h, pad = { l:54, r:16, t:12, b:40 };
+  var dates = r.p.dates, series = [['gmv',r.ports.gmv.bt.curve],['ms',r.ports.ms.bt.curve],['agg',r.ports.agg.bt.curve]];
+  if (r.bench) series.push(['bench', r.bench.curve]);
+  var all = []; series.forEach(function(s){ all = all.concat(s[1]); });
+  var y0 = Math.min.apply(null, all), y1 = Math.max.apply(null, all), yp = (y1-y0)*0.05; y0 -= yp; y1 += yp;
+  var n = dates.length;
+  var X = function(i){ return pad.l + i/(n-1)*(W-pad.l-pad.r); };
+  var Y = function(v){ return H-pad.b - (v-y0)/(y1-y0)*(H-pad.t-pad.b); };
+  var yearTicks = [], last = '';
+  dates.forEach(function(d,i){ var y = d.slice(0,4); if (y !== last){ if (last) yearTicks.push(i); last = y; } });
+  if (yearTicks.length < 2) yearTicks = [0, Math.floor(n/2), n-1];
+  axes(g, W, H, pad, yearTicks, niceTicks(y0,y1,5), X, Y,
+    function(i){ var d = dates[i]; return yearTicks.length > 3 ? d.slice(0,4) : d.slice(0,4)+'/'+d.slice(4,6); },
+    function(v){ return '$'+v.toFixed(v < 10 ? 2 : 1); }, '', '');
+  g.strokeStyle = css('--text-muted'); g.setLineDash([3,3]); g.beginPath(); g.moveTo(pad.l, Y(1)); g.lineTo(W-pad.r, Y(1)); g.stroke(); g.setLineDash([]);
+  series.forEach(function(s){
+    g.strokeStyle = css(s[0]==='bench' ? '--bench' : COLORS[s[0]]); g.lineWidth = s[0]===state.pref ? 2.4 : 1.4;
+    if (s[0]==='bench') g.setLineDash([4,3]);
+    g.beginPath(); var step = Math.max(1, Math.floor(n/(W*1.5)));
+    for (var i = 0; i < n; i += step) i ? g.lineTo(X(i), Y(s[1][i])) : g.moveTo(X(i), Y(s[1][i]));
+    g.lineTo(X(n-1), Y(s[1][n-1])); g.stroke(); g.setLineDash([]);
+  });
+  bindTip(cv, $('tip2'), function(mx){
+    var i = Math.round((mx-pad.l)/(W-pad.l-pad.r)*(n-1)); if (i < 0 || i >= n) return null;
+    var lbl = { gmv:'GMV', ms:'最大夏普', agg:'積極', bench:'0050' };
+    var html = '<b>'+ymd2iso(dates[i])+'</b>';
+    series.forEach(function(s){ html += '<br><span style="color:var('+(s[0]==='bench'?'--bench':COLORS[s[0]])+')">●</span> '+lbl[s[0]]+' $'+s[1][i].toFixed(2); });
+    return { x:X(i), y:pad.t+20, html:html };
+  });
+}
+
+var rz = null;
+window.addEventListener('resize', function(){ clearTimeout(rz); rz = setTimeout(function(){ drawFrontier(); drawGrowth(); }, 120); });
+if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ drawFrontier(); drawGrowth(); });
+
+fetch('px/index.json').then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function(d){
+  state.list = d.list;
+  d.list.forEach(function(x){ state.byCode[x.c] = x; });
+  state.asof = d.asof;
+  state.first = d.list.reduce(function(m, x){ return x.s && x.s < m ? x.s : m; }, d.asof);
+  state.sel = PAPER.filter(function(c){ return info(c); });
+  $('bAsof').textContent = ymd2iso(d.asof);
+  buildAssets(); syncChips(); buildPref(); buildPeriod();
+}).catch(function(e){
+  $('main').innerHTML = '<div class="panel empty">全市場價格資料還沒建立或載入失敗(' + esc(e.message) + ')。<br>'
+    + '第一次架站時,請到 GitHub 的 Actions 分頁執行「MPT 全市場資料」,約 10~30 分鐘後重新整理本頁。</div>';
+});
+
+})();
+</script>
+</body></html>

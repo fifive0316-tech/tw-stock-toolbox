@@ -10,6 +10,7 @@
  3. 股利估價雷達:月營收 → 重算 Q4 推估與估值(update_div_revenue.py + post_merge_fix.py)
  4. 股利估價雷達:財報指標 ROE/毛利率/營益率/負債比(update_fundamentals.py)
  5. 股利估價雷達:近十日籌碼、趨勢分類、近 3 月營收年增(update_chips.py)
+(MPT 投資組合的全市場價格由 .github/workflows/mpt.yml 另外執行 scripts/update_mpt.py)
 每一步失敗都不會影響其他步驟;最後印出摘要。有任何步驟出錯時結束代碼為 1(GitHub 會寄信通知),
 但已經成功的步驟一樣會被存檔發布。
 """

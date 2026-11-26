@@ -1,6 +1,8 @@
 # 台股工具箱(獨立架站版)
 
-「台股趨勢雷達」與「股利估價雷達」搬離 Claude 後的版本:
+「台股趨勢雷達」、「股利估價雷達」與「MPT 投資組合」三合一的台股工具箱:
+
+- **一個網址、三個分頁**:打開網站直接進入台股趨勢雷達,上方分頁列可切換到股利估價雷達、MPT 投資組合。
 
 - **網頁**放在 GitHub Pages,有自己的固定網址,手機電腦都能開。
 - **每天自動更新**由 GitHub Actions 執行(免費),不需要任何 AI,也不需要你的電腦開著。
@@ -14,7 +16,7 @@
 
 | 位置 | 內容 |
 |---|---|
-| `site/` | 網站本身:`index.html` 工具箱首頁、`trend/` 趨勢雷達、`dividend/` 股利估價雷達 |
+| `site/` | 網站本身:`index.html`(自動轉到趨勢雷達)、`nav.js` 共用分頁列、`trend/` 趨勢雷達、`dividend/` 股利估價雷達、`mpt/` MPT 投資組合 |
 | `scripts/` | 自動更新用的 Python 程式(`daily.py` 是總控) |
 | `inputs/` | 你上傳 CSV / 估價表 xlsx 的地方,上傳後自動合併 |
 | `.github/workflows/` | GitHub 自動執行的設定:每日更新、合併上傳檔、發布網站 |
@@ -31,7 +33,7 @@
    - 勾「Add a README file」,按「Create repository」。
 3. **上傳檔案**:在儲存庫頁面按「Add file → Upload files」,把解壓縮後**資料夾裡面的所有東西**(`site`、`scripts`、`inputs`、`gemini`、`.github`、`README.md`、`.gitignore`)一起拖進去,按「Commit changes」。
    - 請用 Chrome 或 Edge 拖曳整個資料夾,子資料夾才會一起上傳。
-   - 上傳後確認看得到 `.github/workflows` 裡有三個 `.yml` 檔;如果沒有,單獨再拖一次 `.github` 資料夾。
+   - 上傳後確認看得到 `.github/workflows` 裡有四個 `.yml` 檔;如果沒有,單獨再拖一次 `.github` 資料夾。
 4. **開啟網站發布**:「Settings」→ 左側「Pages」→「Build and deployment」的 Source 選 **GitHub Actions**。
 5. **允許自動存檔**:「Settings」→「Actions」→「General」→ 最下方「Workflow permissions」選 **Read and write permissions** → Save。
 6. **第一次發布**:上方「Actions」分頁 → 左側「發布網站」→ 右側「Run workflow」→ 綠色按鈕。約 1 分鐘後完成。
@@ -43,6 +45,23 @@
 ---
 
 ## 二、日常使用
+
+### MPT 投資組合(現代投資組合理論)
+依莊瑞南老師「運用現代投資組合理論分析台股 ETF 與大型股之風險報酬與最優配置」專題製作,原本的 Flask + MySQL + yfinance 架構改成:
+
+| 專題原架構 | 本站做法 |
+|---|---|
+| `data_update.py` 用 yfinance 抓股價寫入 MySQL | `scripts/update_mpt.py` 每個交易日從 Yahoo Finance(yfinance 同一來源)抓**全市場**(上市+上櫃+ETF,約 2,300 檔)2015 年起的還原權息收盤價,每檔一個檔案放在 `site/mpt/px/` |
+| `mpt_engine.py`(numpy/scipy):報酬、風險、共變異、3000 組隨機權重、GMV、Max Sharpe | `site/mpt/mpt-engine.js` 在瀏覽器裡計算,結果已與 scipy SLSQP 比對一致 |
+| `app.py` + `main.js` + `index.html` | `site/mpt/index.html`:選股、期間、風險偏好(保守/平衡/積極)、效率前緣圖、權重、回測、相關係數 |
+
+- 選標的用**可搜尋的下拉選單**:輸入代號、名稱或產業(例:`2330`、`台積`、`半導體`),最多同時選 40 檔;也有「專題 14 檔」「ETF + 權值股」「高股息 ETF」「電子權值」快速鍵。網頁只下載你選到的標的價格檔。
+- 全市場清單跟著趨勢雷達(`site/trend/data.json`)走,新上市的股票、ETF 會自動加入。
+- **價格檔不放進 git**(約 2,300 個檔、每天都變,放進去儲存庫會暴增),而是由「MPT 全市場資料」這個 Action 存在 GitHub Actions 的快取,發布網站時一起上傳。
+  - **第一次架站**:完成上面「一、架設」後,到「Actions」→「MPT 全市場資料」→「Run workflow」跑一次(約 5~15 分鐘),MPT 分頁才會有資料。
+  - 之後每個交易日台北時間約 22:10 自動更新(隔天 08:50 補跑);只抓最近 40 天,遇到除權息才整段重抓。
+  - 快取 7 天沒用到會被 GitHub 清掉(例如排程被停用),此時 MPT 分頁會顯示「資料還沒建立」,再手動跑一次即可自動重建。
+- 保守 = GMV、平衡 = 最大夏普、積極 = 效率前緣上介於最大夏普與最高報酬標的之間的組合。
 
 ### 篩選價值股
 打開股利估價雷達,選「便宜」、品質「7 項以上」、本益比「12 倍以下」,再切到「品質欄位」逐項看。

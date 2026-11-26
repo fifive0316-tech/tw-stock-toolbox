@@ -1,0 +1,57 @@
+name: MPT 全市場資料
+
+# 全市場(上市+上櫃+ETF)還原權息日收盤價,給「MPT 投資組合」分頁用。
+# 價格檔很多(約 2,300 個)、每天都會變,所以不放進 git,而是存在 GitHub Actions 快取(site/mpt/px),
+# 發布網站(deploy.yml)時再從快取取出一起上傳。快取 7 天沒用到會被清掉,清掉後下一次執行會自動重建。
+on:
+  schedule:
+    - cron: '10 14 * * 1-5'    # 台北 22:10(每日資料更新之後)
+    - cron: '50 0 * * 2-6'     # 台北隔天 08:50 補跑
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpt-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 取出上次的價格檔
+        uses: actions/cache/restore@v4
+        with:
+          path: site/mpt/px
+          key: mpt-px-${{ github.run_id }}
+          restore-keys: mpt-px-
+      - name: 抓取全市場還原股價
+        id: upd
+        continue-on-error: true
+        run: python scripts/update_mpt.py --budget 120
+      - name: 存回快取
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: site/mpt/px
+          key: mpt-px-${{ github.run_id }}
+      - name: 抓取失敗時標示為失敗
+        if: steps.upd.outcome == 'failure'
+        run: |
+          echo "請展開上面「抓取全市場還原股價」看紀錄(多半是 Yahoo Finance 連線或限速)"
+          exit 1
+
+  deploy:
+    needs: update
+    if: always()
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

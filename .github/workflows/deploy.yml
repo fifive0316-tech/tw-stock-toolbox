@@ -28,6 +28,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - name: 取出 MPT 全市場價格檔(由「MPT 全市場資料」維護的快取)
+        uses: actions/cache/restore@v4
+        with:
+          path: site/mpt/px
+          key: mpt-px-latest
+          restore-keys: mpt-px-
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
